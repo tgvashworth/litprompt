@@ -1,0 +1,6 @@
+version: 1
+imports:
+  "https://github.com/example/prompts/blob/abc123/tone.md":
+    hash: "sha256:14e12acd7b2569b8a4830f3d0cd082467bde60ff72f3469031cc01f777018602"
+  "https://gitlab.com/example/prompts/-/blob/def456/rules.md":
+    hash: "sha256:49fffb24a881620861d88ba6b987a635bfd6130e7d6c00d0254b9038666bde8b"

@@ -1,0 +1,4 @@
+version: 1
+imports:
+  "https://github.com/org/repo/blob/v1.2.0/path/to/prompt.md":
+    hash: "sha256:d55f990e8437a093eeb0b842e8d0c548f037dfac09467d53b6853d8c89fe11a7"

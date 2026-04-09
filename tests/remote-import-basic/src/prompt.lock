@@ -1,0 +1,4 @@
+version: 1
+imports:
+  "https://github.com/example/prompts/blob/abc123/helper.md":
+    hash: "sha256:9db26da266bd05448800db1d986281ad1a92645dba943c208cd421b97e87fb06"

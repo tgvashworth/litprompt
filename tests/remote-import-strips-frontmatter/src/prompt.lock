@@ -1,0 +1,4 @@
+version: 1
+imports:
+  "https://github.com/example/prompts/blob/abc123/shared.md":
+    hash: "sha256:273c8e3358fb33dd0d97dd54e02a34e590c9d07e1de350b9b1b1ab5d7ea92a7f"

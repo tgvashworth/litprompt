@@ -1,0 +1,4 @@
+version: 1
+imports:
+  "https://github.com/org/repo/blob/abc123/a/b/c/d/deep.md":
+    hash: "sha256:e8c101dd618b6fbf5d996aa4d2e1533919ccfdf00d44c02fc531e82fdc437160"

@@ -1,0 +1,4 @@
+version: 1
+imports:
+  "https://gitlab.com/org/repo/-/blob/main/prompts/tone.md":
+    hash: "sha256:23f2d3951a05639b1c0efc398eace0dda7e21f5dcbff2aa796f0a5d9fd9f8e7a"
