@@ -27,7 +27,7 @@ Multiple lines are fine.
 - The link text is a human-readable label — not semantically meaningful to the build
 - The path is resolved relative to the importing file
 - Imported content replaces the `@[...]()` line in the output
-- YAML frontmatter in imported files is stripped (only the root file's frontmatter is preserved)
+- YAML frontmatter in imported files is stripped, including the blank line that typically follows the closing `---` (only the root file's frontmatter is preserved)
 - Transitive imports are resolved (imported files can themselves contain `@[...]()` imports)
 - Circular imports are detected and rejected with an error
 

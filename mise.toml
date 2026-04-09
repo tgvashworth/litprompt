@@ -1,0 +1,14 @@
+[tools]
+go = "1.23"
+
+[tasks.test]
+run = "go test ./..."
+
+[tasks.test-v]
+run = "go run github.com/onsi/ginkgo/v2/ginkgo -v ./integration/..."
+
+[tasks.build]
+run = "go build -o bin/litprompt ./cmd/litprompt"
+
+[tasks.lint]
+run = "go vet ./..."
