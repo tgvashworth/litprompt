@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tgvashworth/literate-prompting/internal/lockfile"
-	"github.com/tgvashworth/literate-prompting/internal/parse"
+	"github.com/tgvashworth/litprompt/internal/lockfile"
+	"github.com/tgvashworth/litprompt/internal/parse"
 )
 
 // Options configures the build process.
@@ -54,7 +54,7 @@ func (c *importChain) circularError(target string) error {
 	return fmt.Errorf("circular import detected: %s", strings.Join(names, " -> "))
 }
 
-// Build processes a literate prompting markdown file, stripping comments,
+// Build processes a markdown file, stripping comments,
 // resolving imports, and returning the final output.
 func Build(inputPath string, opts Options) (string, error) {
 	absPath, err := filepath.Abs(inputPath)

@@ -1,4 +1,4 @@
-# Literate prompting spec
+# litprompt spec
 
 ## Syntax
 

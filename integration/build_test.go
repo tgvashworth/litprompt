@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/tgvashworth/literate-prompting/internal/build"
+	"github.com/tgvashworth/litprompt/internal/build"
 )
 
 var _ = Describe("Build", func() {

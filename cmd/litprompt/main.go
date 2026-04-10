@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tgvashworth/literate-prompting/internal/build"
+	"github.com/tgvashworth/litprompt/internal/build"
 )
 
 var (
@@ -22,7 +22,7 @@ var (
 func main() {
 	root := &cobra.Command{
 		Use:   "litprompt",
-		Short: "Literate prompting — a markdown preprocessor for LLM prompts",
+		Short: "A markdown preprocessor for LLM prompts",
 		Long: `litprompt builds LLM prompts from markdown files with comments and imports.
 
 Comments (<!-- @ ... -->) are stripped from the output.
@@ -64,7 +64,7 @@ func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build <file.md|dir/>",
 		Short: "Build one or more markdown files",
-		Long: `Build processes literate prompting markdown files, stripping comments
+		Long: `Build processes markdown files, stripping comments
 and resolving imports. Output goes to stdout by default.
 
 Examples:
@@ -84,7 +84,7 @@ func checkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check <file.md|dir/>",
 		Short: "Validate imports resolve, lockfile is current, no cycles",
-		Long: `Check validates literate prompting markdown files without producing output.
+		Long: `Check validates markdown files without producing output.
 It verifies that all imports resolve, the lockfile is current for remote
 imports, and there are no circular dependencies.`,
 		Args: cobra.ExactArgs(1),
