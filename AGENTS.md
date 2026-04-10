@@ -17,16 +17,20 @@ mise run lint                         # go vet
 ## Architecture
 
 ```
-main.go                   CLI entrypoint (cobra). Defines build and check commands.
+main.go                   CLI entrypoint (cobra). Defines build, check, and lock commands.
+                          Also: insertHeader (--header flag), resolveInputFiles (recursive walk + --match).
 internal/build/build.go   Core build orchestrator. Reads a file, strips comments,
                           resolves imports recursively, detects circular imports.
+                          Remote imports read from cache by content hash.
 internal/parse/parse.go   Comment stripping (regex) and import finding. No I/O.
-internal/lockfile/        Parses prompt.lock, verifies SHA-256 content hashes.
+internal/gitfetch/        Parses GitHub/GitLab/Bitbucket URLs, fetches files via git CLI
+                          with HTTPS→SSH fallback. Used by the lock command.
+internal/lockfile/        Parses and writes prompt.lock, verifies SHA-256 content hashes.
 integration/              Ginkgo test suite. Auto-discovers fixture dirs from tests/.
 tests/*/                  46 fixture-based test cases.
 ```
 
-**Data flow:** CLI calls `build.Build(path, opts)` which reads the file, calls `parse.StripComments`, then walks each `@[label](target)` import line, recursively calling `buildFile` for local imports or `resolveRemoteImport` for URLs. Remote imports require a `prompt.lock` entry and verify content hashes.
+**Data flow:** CLI calls `build.Build(path, opts)` which reads the file, calls `parse.StripComments`, then walks each `@[label](target)` import line, recursively calling `buildFile` for local imports or `resolveRemoteImport` for URLs. Remote imports read cached content from `~/.cache/litprompt/` by hash, verified against `prompt.lock`. The `lock` command uses `gitfetch.FetchFile` to populate the cache.
 
 ## Directive syntax
 
