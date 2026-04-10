@@ -71,8 +71,9 @@ Examples:
   litprompt build prompt.md            # build one file, print to stdout
   litprompt build prompt.md -o out.md  # build one file to a specific output
   litprompt build prompts/ -o out/     # build all .md files in directory`,
-		Args: cobra.ExactArgs(1),
-		RunE: runBuild,
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE:         runBuild,
 	}
 
 	cmd.Flags().StringVarP(&outputTo, "output", "o", "", "output file or directory")
@@ -87,7 +88,8 @@ func checkCmd() *cobra.Command {
 		Long: `Check validates markdown files without producing output.
 It verifies that all imports resolve, the lockfile is current for remote
 imports, and there are no circular dependencies.`,
-		Args: cobra.ExactArgs(1),
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			files, err := resolveInputFiles(args[0])
 			if err != nil {
