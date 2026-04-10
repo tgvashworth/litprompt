@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -37,6 +38,33 @@ func (e Entry) VerifyHash(content string) error {
 func sha256Hex(content string) string {
 	h := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("%x", h)
+}
+
+// HashContent returns the sha256-prefixed hash of content.
+func HashContent(content string) string {
+	return "sha256:" + sha256Hex(content)
+}
+
+// Save writes a lockfile to disk.
+func Save(path string, lf *Lockfile) error {
+	var b strings.Builder
+	b.WriteString("version: 1\n")
+	b.WriteString("imports:\n")
+
+	// Sort URLs for deterministic output.
+	urls := make([]string, 0, len(lf.Imports))
+	for url := range lf.Imports {
+		urls = append(urls, url)
+	}
+	sort.Strings(urls)
+
+	for _, url := range urls {
+		entry := lf.Imports[url]
+		fmt.Fprintf(&b, "  %q:\n", url)
+		fmt.Fprintf(&b, "    hash: %q\n", entry.Hash)
+	}
+
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 // Load reads and parses a prompt.lock file.

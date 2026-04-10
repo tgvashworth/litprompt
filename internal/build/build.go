@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tgvashworth/litprompt/internal/gitfetch"
 	"github.com/tgvashworth/litprompt/internal/lockfile"
 	"github.com/tgvashworth/litprompt/internal/parse"
 )
@@ -20,6 +21,10 @@ type Options struct {
 	// LockfilePath, if set, is used instead of discovering prompt.lock
 	// next to the input file. The CLI sets this to <cwd>/prompt.lock.
 	LockfilePath string
+
+	// CacheDir is the directory for cached remote content (by hash).
+	// Defaults to ~/.cache/litprompt/ if empty.
+	CacheDir string
 }
 
 // importChain tracks the current import path for circular detection.
@@ -191,7 +196,7 @@ func resolveRemoteImport(url string, opts Options, lf *lockfile.Lockfile, chain 
 		return "", fmt.Errorf("remote import not in lockfile: %s", url)
 	}
 
-	content, err := fetchRemoteContent(url, opts)
+	content, err := fetchRemoteContent(url, opts, lf)
 	if err != nil {
 		return "", err
 	}
@@ -206,20 +211,35 @@ func resolveRemoteImport(url string, opts Options, lf *lockfile.Lockfile, chain 
 	return result, nil
 }
 
-func fetchRemoteContent(url string, opts Options) (string, error) {
-	if opts.MockDir == "" {
-		return "", fmt.Errorf("remote fetching not implemented (no mock dir): %s", url)
+func fetchRemoteContent(url string, opts Options, lf *lockfile.Lockfile) (string, error) {
+	// Test mode: read from mock directory.
+	if opts.MockDir != "" {
+		mockPath := urlToMockPath(url)
+		fullPath := filepath.Join(opts.MockDir, mockPath)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			return "", fmt.Errorf("reading mock content for %s: %w", url, err)
+		}
+		return string(data), nil
 	}
 
-	mockPath := urlToMockPath(url)
-	fullPath := filepath.Join(opts.MockDir, mockPath)
-
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return "", fmt.Errorf("reading mock content for %s: %w", url, err)
+	// Production mode: read from cache by content hash.
+	if lf != nil {
+		entry, ok := lf.Lookup(url)
+		if ok {
+			cacheDir := opts.CacheDir
+			if cacheDir == "" {
+				cacheDir = gitfetch.CacheDir()
+			}
+			hash := strings.TrimPrefix(entry.Hash, "sha256:")
+			cachePath := filepath.Join(cacheDir, hash)
+			if data, err := os.ReadFile(cachePath); err == nil {
+				return string(data), nil
+			}
+		}
 	}
 
-	return string(data), nil
+	return "", fmt.Errorf("content not cached for %s (run 'litprompt lock' first)", url)
 }
 
 func urlToMockPath(rawURL string) string {

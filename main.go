@@ -13,6 +13,9 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/spf13/cobra"
 	"github.com/tgvashworth/litprompt/internal/build"
+	"github.com/tgvashworth/litprompt/internal/gitfetch"
+	"github.com/tgvashworth/litprompt/internal/lockfile"
+	"github.com/tgvashworth/litprompt/internal/parse"
 )
 
 // version is set at build time via ldflags.
@@ -50,6 +53,7 @@ Remote imports require a prompt.lock with content hashes.`,
 
 	root.AddCommand(buildCmd())
 	root.AddCommand(checkCmd())
+	root.AddCommand(lockCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -133,6 +137,112 @@ imports, and there are no circular dependencies.`,
 	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
 
 	return cmd
+}
+
+func lockCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "lock <file.md|dir/>",
+		Short: "Fetch remote imports and write prompt.lock",
+		Long: `Lock scans markdown files for remote imports, fetches each one
+via git, computes content hashes, and writes prompt.lock in the
+current directory. Fetched content is cached in ~/.cache/litprompt/.`,
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE:         runLock,
+	}
+}
+
+func runLock(cmd *cobra.Command, args []string) error {
+	input := args[0]
+
+	// Collect all files to scan.
+	var filePaths []string
+	if input == "-" {
+		return fmt.Errorf("lock does not support stdin")
+	}
+	var err error
+	filePaths, err = resolveInputFiles(input)
+	if err != nil {
+		return err
+	}
+
+	// Find all remote imports across all files.
+	type remoteImport struct {
+		url  string
+		file string
+	}
+	var remotes []remoteImport
+	seen := map[string]bool{}
+
+	for _, f := range filePaths {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", f, err)
+		}
+		imports := parse.FindImports(string(data))
+		for _, imp := range imports {
+			if imp.IsRemote() && !seen[imp.Target] {
+				seen[imp.Target] = true
+				remotes = append(remotes, remoteImport{url: imp.Target, file: f})
+			}
+		}
+	}
+
+	if len(remotes) == 0 {
+		fmt.Fprintf(os.Stderr, "no remote imports found\n")
+		return nil
+	}
+
+	// Load existing lockfile (if any) to preserve entries.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	lockPath := filepath.Join(cwd, "prompt.lock")
+	lf, _ := lockfile.Load(lockPath)
+	if lf == nil {
+		lf = &lockfile.Lockfile{Imports: map[string]lockfile.Entry{}}
+	}
+
+	cacheDir := gitfetch.CacheDir()
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return fmt.Errorf("creating cache dir: %w", err)
+	}
+
+	// Fetch each remote import.
+	for _, r := range remotes {
+		slog.Info("fetching", "url", r.url)
+
+		cloneURL, ref, filePath, err := gitfetch.ParseGitURL(r.url)
+		if err != nil {
+			return fmt.Errorf("parsing URL %s: %w", r.url, err)
+		}
+
+		content, err := gitfetch.FetchFile(cloneURL, ref, filePath)
+		if err != nil {
+			return fmt.Errorf("fetching %s: %w", r.url, err)
+		}
+
+		hash := lockfile.HashContent(content)
+		lf.Imports[r.url] = lockfile.Entry{Hash: hash}
+
+		// Cache by hash.
+		hashHex := strings.TrimPrefix(hash, "sha256:")
+		cachePath := filepath.Join(cacheDir, hashHex)
+		if err := os.WriteFile(cachePath, []byte(content), 0o644); err != nil {
+			return fmt.Errorf("writing cache: %w", err)
+		}
+
+		slog.Info("locked", "url", r.url, "hash", hash)
+	}
+
+	// Write lockfile.
+	if err := lockfile.Save(lockPath, lf); err != nil {
+		return fmt.Errorf("writing lockfile: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "locked %d remote import(s) → prompt.lock\n", len(remotes))
+	return nil
 }
 
 func buildOpts() build.Options {
