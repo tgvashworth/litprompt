@@ -16,6 +16,10 @@ type Options struct {
 	// MockDir, if set, is used to resolve remote imports from a local
 	// directory instead of fetching from the network.
 	MockDir string
+
+	// LockfilePath, if set, is used instead of discovering prompt.lock
+	// next to the input file. The CLI sets this to <cwd>/prompt.lock.
+	LockfilePath string
 }
 
 // importChain tracks the current import path for circular detection.
@@ -62,7 +66,10 @@ func Build(inputPath string, opts Options) (string, error) {
 		return "", fmt.Errorf("resolving path: %w", err)
 	}
 
-	lockPath := filepath.Join(filepath.Dir(absPath), "prompt.lock")
+	lockPath := opts.LockfilePath
+	if lockPath == "" {
+		lockPath = filepath.Join(filepath.Dir(absPath), "prompt.lock")
+	}
 	lf, _ := lockfile.Load(lockPath)
 
 	chain := newChain()
@@ -77,7 +84,10 @@ func BuildString(content string, baseDir string, opts Options) (string, error) {
 		return "", fmt.Errorf("resolving base dir: %w", err)
 	}
 
-	lockPath := filepath.Join(absDir, "prompt.lock")
+	lockPath := opts.LockfilePath
+	if lockPath == "" {
+		lockPath = filepath.Join(absDir, "prompt.lock")
+	}
 	lf, _ := lockfile.Load(lockPath)
 
 	// Strip comments.

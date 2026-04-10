@@ -65,14 +65,16 @@ go install github.com/tgvashworth/litprompt@latest
 ## Usage
 
 ```sh
-litprompt build prompt.md              # build one file, print to stdout
-litprompt build prompt.md -o out.md    # write to a file
-litprompt build prompts/ -o out/       # build all .md files in a directory
-litprompt check prompt.md              # validate: imports resolve, no cycles
-litprompt lock                         # fetch remote imports, write prompt.lock
+litprompt build prompt.md                          # build one file, print to stdout
+litprompt build prompt.md -o out.md                # write to a file
+litprompt build prompts/ -o out/                   # build all .md files recursively
+litprompt build prompts/ -o out/ --match '**/*.md' # filter which files to build
+litprompt check prompt.md                          # validate: imports resolve, no cycles
+litprompt lock                                     # fetch remote imports, write prompt.lock
+cat prompt.md | litprompt build -                  # read from stdin
 ```
 
-Flags: `-v` verbose, `-d` debug, `-q` quiet.
+Flags: `-v` verbose, `-d` debug, `-q` quiet. The lockfile (`prompt.lock`) is discovered from the current working directory.
 
 ## Syntax
 

@@ -69,7 +69,8 @@ The integration suite (`integration/build_test.go`) auto-discovers all directori
 ## Key design decisions
 
 - **`@` as the directive character:** Chosen to be visually distinct in markdown while not conflicting with standard markdown syntax. Both comments (`<!-- @ -->`) and imports (`@[label](path)`) use it.
-- **Lockfile model:** Remote imports require a `prompt.lock` with SHA-256 content hashes. The build never fetches from the network -- `litprompt lock` is the only command that hits the network. This makes builds reproducible and auditable.
+- **Lockfile discovery:** `prompt.lock` is discovered from the current working directory (like `package.json` or `terraform.lock`). `Options.LockfilePath` can override this. Remote imports require a lockfile entry with SHA-256 content hashes. The build never fetches from the network -- `litprompt lock` is the only command that hits the network.
+- **Directory mode:** `litprompt build <dir/>` recursively walks the directory. `--match` filters files by glob pattern (uses `doublestar` library for `**` support). Output mirrors the input directory structure.
 - **No templating:** Variables, conditionals, and loops are explicitly out of scope. The tool does two things: strip comments and resolve imports. Use a template engine upstream if you need more.
 - **Frontmatter handling:** YAML frontmatter is preserved in the root file but stripped from all imported files, so the final output has at most one frontmatter block.
 - **Circular import detection:** Uses an ordered set (`importChain`) tracking the current call stack. Errors include the full cycle path for debugging.

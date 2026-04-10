@@ -3,6 +3,7 @@ module github.com/tgvashworth/litprompt
 go 1.24.0
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/spf13/cobra v1.10.2

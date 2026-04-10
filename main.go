@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/spf13/cobra"
 	"github.com/tgvashworth/litprompt/internal/build"
 )
@@ -16,11 +18,12 @@ import (
 var version = "dev"
 
 var (
-	verbose  bool
-	debug    bool
-	quiet    bool
-	mockDir  string
-	outputTo string
+	verbose   bool
+	debug     bool
+	quiet     bool
+	mockDir   string
+	outputTo  string
+	matchGlob string
 )
 
 func main() {
@@ -82,12 +85,13 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&outputTo, "output", "o", "", "output file or directory")
+	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
 
 	return cmd
 }
 
 func checkCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "check <file.md|dir/>",
 		Short: "Validate imports resolve, lockfile is current, no cycles",
 		Long: `Check validates markdown files without producing output.
@@ -101,7 +105,7 @@ imports, and there are no circular dependencies.`,
 				return err
 			}
 
-			opts := build.Options{MockDir: mockDir}
+			opts := buildOpts()
 			errCount := 0
 			for _, f := range files {
 				slog.Info("checking", "file", f)
@@ -122,11 +126,24 @@ imports, and there are no circular dependencies.`,
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
+
+	return cmd
+}
+
+func buildOpts() build.Options {
+	opts := build.Options{MockDir: mockDir}
+	cwd, err := os.Getwd()
+	if err == nil {
+		opts.LockfilePath = filepath.Join(cwd, "prompt.lock")
+	}
+	return opts
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
 	input := args[0]
-	opts := build.Options{MockDir: mockDir}
+	opts := buildOpts()
 
 	// Handle stdin
 	if input == "-" {
@@ -184,7 +201,9 @@ func runBuild(cmd *cobra.Command, args []string) error {
 }
 
 // resolveInputFiles returns a list of .md files to process.
-// If input is a file, returns that file. If a directory, returns all .md files.
+// If input is a file, returns that file. If a directory, walks recursively.
+// matchPattern, if non-empty, filters files by matching against their
+// path relative to the input directory (supports ** via doublestar).
 func resolveInputFiles(input string) ([]string, error) {
 	info, err := os.Stat(input)
 	if err != nil {
@@ -196,18 +215,42 @@ func resolveInputFiles(input string) ([]string, error) {
 	}
 
 	var files []string
-	entries, err := os.ReadDir(input)
+	err = filepath.WalkDir(input, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
+			files = append(files, path)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("reading directory %s: %w", input, err)
+		return nil, fmt.Errorf("walking directory %s: %w", input, err)
 	}
 
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			files = append(files, filepath.Join(input, e.Name()))
+	// Apply glob filter if set.
+	if matchGlob != "" && info.IsDir() {
+		var filtered []string
+		for _, f := range files {
+			rel, err := filepath.Rel(input, f)
+			if err != nil {
+				return nil, fmt.Errorf("computing relative path: %w", err)
+			}
+			matched, err := doublestar.PathMatch(matchGlob, rel)
+			if err != nil {
+				return nil, fmt.Errorf("invalid match pattern %q: %w", matchGlob, err)
+			}
+			if matched {
+				filtered = append(filtered, f)
+			}
 		}
+		files = filtered
 	}
 
 	if len(files) == 0 {
+		if matchGlob != "" {
+			return nil, fmt.Errorf("no .md files matching %q found in %s", matchGlob, input)
+		}
 		return nil, fmt.Errorf("no .md files found in %s", input)
 	}
 

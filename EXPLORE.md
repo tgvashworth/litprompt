@@ -66,12 +66,15 @@ imports:
 ## CLI
 
 ```
-litprompt build <file.md>          # build one file, output to stdout
-litprompt build <file.md> -o out/  # build to output directory
-litprompt build <dir/>             # build all .md files in directory
-litprompt lock                     # fetch remote imports, update prompt.lock
-litprompt check                    # lint: validate imports resolve, lockfile is current, no cycles
+litprompt build <file.md>                        # build one file, output to stdout
+litprompt build <file.md> -o out/                # build to output directory
+litprompt build <dir/>                           # build all .md files recursively
+litprompt build <dir/> --match '**/prompt.md'    # filter which files to build
+litprompt lock                                   # fetch remote imports, update prompt.lock
+litprompt check                                  # lint: validate imports resolve, lockfile is current, no cycles
 ```
+
+The lockfile (`prompt.lock`) is discovered from the current working directory.
 
 ## Caching
 
