@@ -40,7 +40,7 @@ func main() {
 
 Comments (<!-- @ ... -->) are stripped from the output.
 Imports (@[label](./path.md)) inline content from other files.
-Remote imports require a prompt.lock with content hashes.`,
+Remote imports require a litprompt.lock with content hashes.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			setupLogging()
 		},
@@ -156,9 +156,9 @@ imports, and there are no circular dependencies.`,
 func lockCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "lock <file.md|dir/>",
-		Short: "Fetch remote imports and write prompt.lock",
+		Short: "Fetch remote imports and write litprompt.lock",
 		Long: `Lock scans markdown files for remote imports, fetches each one
-via git, computes content hashes, and writes prompt.lock in the
+via git, computes content hashes, and writes litprompt.lock in the
 current directory. Fetched content is cached in ~/.cache/litprompt/.`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
@@ -212,7 +212,7 @@ func runLock(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
-	lockPath := filepath.Join(cwd, "prompt.lock")
+	lockPath := filepath.Join(cwd, "litprompt.lock")
 	lf, _ := lockfile.Load(lockPath)
 	if lf == nil {
 		lf = &lockfile.Lockfile{Imports: map[string]lockfile.Entry{}}
@@ -255,7 +255,7 @@ func runLock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing lockfile: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "locked %d remote import(s) → prompt.lock\n", len(remotes))
+	fmt.Fprintf(os.Stderr, "locked %d remote import(s) → litprompt.lock\n", len(remotes))
 	return nil
 }
 
@@ -263,7 +263,7 @@ func buildOpts() build.Options {
 	opts := build.Options{MockDir: mockDir}
 	cwd, err := os.Getwd()
 	if err == nil {
-		opts.LockfilePath = filepath.Join(cwd, "prompt.lock")
+		opts.LockfilePath = filepath.Join(cwd, "litprompt.lock")
 	}
 	return opts
 }

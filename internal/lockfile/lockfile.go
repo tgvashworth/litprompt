@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Lockfile represents a parsed prompt.lock file.
+// Lockfile represents a parsed litprompt.lock file.
 type Lockfile struct {
 	Imports map[string]Entry
 }
@@ -67,7 +67,7 @@ func Save(path string, lf *Lockfile) error {
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
-// Load reads and parses a prompt.lock file.
+// Load reads and parses a litprompt.lock file.
 // Returns nil, nil if the file does not exist.
 func Load(path string) (*Lockfile, error) {
 	data, err := os.ReadFile(path)

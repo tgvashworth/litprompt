@@ -17,7 +17,7 @@ func TestHashContent(t *testing.T) {
 
 func TestSave_roundtrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "prompt.lock")
+	path := filepath.Join(dir, "litprompt.lock")
 
 	original := &Lockfile{
 		Imports: map[string]Entry{
@@ -57,7 +57,7 @@ func TestSave_roundtrip(t *testing.T) {
 
 func TestSave_creates_file(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "prompt.lock")
+	path := filepath.Join(dir, "litprompt.lock")
 
 	lf := &Lockfile{Imports: map[string]Entry{
 		"https://github.com/org/repo/blob/main/file.md": {Hash: "sha256:abc"},

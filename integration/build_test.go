@@ -104,7 +104,7 @@ func mustReadFile(path string) string {
 func buildOpts(testDir string) build.Options {
 	srcDir := filepath.Join(testDir, "src")
 	opts := build.Options{
-		LockfilePath: filepath.Join(srcDir, "prompt.lock"),
+		LockfilePath: filepath.Join(srcDir, "litprompt.lock"),
 	}
 	mockDir := filepath.Join(testDir, "mock")
 	if fileExists(mockDir) {

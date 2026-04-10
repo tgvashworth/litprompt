@@ -18,8 +18,8 @@ type Options struct {
 	// directory instead of fetching from the network.
 	MockDir string
 
-	// LockfilePath, if set, is used instead of discovering prompt.lock
-	// next to the input file. The CLI sets this to <cwd>/prompt.lock.
+	// LockfilePath, if set, is used instead of discovering litprompt.lock
+	// next to the input file. The CLI sets this to <cwd>/litprompt.lock.
 	LockfilePath string
 
 	// CacheDir is the directory for cached remote content (by hash).
@@ -73,7 +73,7 @@ func Build(inputPath string, opts Options) (string, error) {
 
 	lockPath := opts.LockfilePath
 	if lockPath == "" {
-		lockPath = filepath.Join(filepath.Dir(absPath), "prompt.lock")
+		lockPath = filepath.Join(filepath.Dir(absPath), "litprompt.lock")
 	}
 	lf, _ := lockfile.Load(lockPath)
 
@@ -91,7 +91,7 @@ func BuildString(content string, baseDir string, opts Options) (string, error) {
 
 	lockPath := opts.LockfilePath
 	if lockPath == "" {
-		lockPath = filepath.Join(absDir, "prompt.lock")
+		lockPath = filepath.Join(absDir, "litprompt.lock")
 	}
 	lf, _ := lockfile.Load(lockPath)
 
