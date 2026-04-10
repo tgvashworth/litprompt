@@ -69,6 +69,32 @@ func Build(inputPath string, opts Options) (string, error) {
 	return buildFile(absPath, opts, lf, chain, true)
 }
 
+// BuildString processes markdown content from a string (e.g. stdin).
+// baseDir is used to resolve relative imports.
+func BuildString(content string, baseDir string, opts Options) (string, error) {
+	absDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving base dir: %w", err)
+	}
+
+	lockPath := filepath.Join(absDir, "prompt.lock")
+	lf, _ := lockfile.Load(lockPath)
+
+	// Strip comments.
+	result := parse.StripComments(content)
+
+	// Resolve imports relative to baseDir.
+	chain := newChain()
+	stdinPath := filepath.Join(absDir, "<stdin>")
+	chain.push(stdinPath)
+	result, err = resolveImports(result, stdinPath, opts, lf, chain)
+	if err != nil {
+		return "", err
+	}
+
+	return result, nil
+}
+
 func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *importChain, isRoot bool) (string, error) {
 	if chain.contains(absPath) {
 		return "", chain.circularError(absPath)

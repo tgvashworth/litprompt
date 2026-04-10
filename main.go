@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -10,6 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tgvashworth/litprompt/internal/build"
 )
+
+// version is set at build time via ldflags.
+var version = "dev"
 
 var (
 	verbose  bool
@@ -21,8 +25,9 @@ var (
 
 func main() {
 	root := &cobra.Command{
-		Use:   "litprompt",
-		Short: "A markdown preprocessor for LLM prompts",
+		Use:     "litprompt",
+		Short:   "A markdown preprocessor for LLM prompts",
+		Version: version,
 		Long: `litprompt builds LLM prompts from markdown files with comments and imports.
 
 Comments (<!-- @ ... -->) are stripped from the output.
@@ -122,6 +127,24 @@ imports, and there are no circular dependencies.`,
 func runBuild(cmd *cobra.Command, args []string) error {
 	input := args[0]
 	opts := build.Options{MockDir: mockDir}
+
+	// Handle stdin
+	if input == "-" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+		result, err := build.BuildString(string(data), cwd, opts)
+		if err != nil {
+			return err
+		}
+		fmt.Print(result)
+		return nil
+	}
 
 	files, err := resolveInputFiles(input)
 	if err != nil {
