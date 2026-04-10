@@ -17,7 +17,7 @@ mise run lint                         # go vet
 ## Architecture
 
 ```
-cmd/litprompt/main.go     CLI entrypoint (cobra). Defines build and check commands.
+main.go                   CLI entrypoint (cobra). Defines build and check commands.
 internal/build/build.go   Core build orchestrator. Reads a file, strips comments,
                           resolves imports recursively, detects circular imports.
 internal/parse/parse.go   Comment stripping (regex) and import finding. No I/O.
