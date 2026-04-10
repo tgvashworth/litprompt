@@ -72,3 +72,34 @@ func FindImports(content string) []Import {
 
 	return imports
 }
+
+// suspectedImportPattern matches lines that start with @[...](...) but have
+// trailing content — likely a typo where the user meant it to be an import.
+var suspectedImportPattern = regexp.MustCompile(`(?m)^\s*@\[([^\]]+)\]\(([^)]+)\).+$`)
+
+// SuspectedImport represents a line that looks like an import but isn't valid.
+type SuspectedImport struct {
+	Line    int
+	Content string
+}
+
+// FindSuspectedImports returns lines that look like imports but have trailing
+// content (e.g. `@[label](path).`). These are likely typos.
+func FindSuspectedImports(content string) []SuspectedImport {
+	var suspected []SuspectedImport
+	validImports := map[int]bool{}
+	for _, imp := range FindImports(content) {
+		validImports[imp.Line] = true
+	}
+
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if validImports[i] {
+			continue
+		}
+		if suspectedImportPattern.MatchString(line) {
+			suspected = append(suspected, SuspectedImport{Line: i, Content: line})
+		}
+	}
+	return suspected
+}

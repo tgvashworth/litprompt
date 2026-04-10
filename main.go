@@ -114,6 +114,7 @@ imports, and there are no circular dependencies.`,
 
 			opts := buildOpts()
 			errCount := 0
+			warnCount := 0
 			for _, f := range files {
 				slog.Info("checking", "file", f)
 				_, err := build.Build(f, opts)
@@ -123,13 +124,26 @@ imports, and there are no circular dependencies.`,
 				} else {
 					slog.Info("ok", "file", f)
 				}
+
+				// Warn about suspected imports (lines that look like imports but have trailing content).
+				data, readErr := os.ReadFile(f)
+				if readErr == nil {
+					for _, s := range parse.FindSuspectedImports(string(data)) {
+						fmt.Fprintf(os.Stderr, "WARN %s:%d: possible malformed import (trailing content): %s\n", f, s.Line+1, strings.TrimSpace(s.Content))
+						warnCount++
+					}
+				}
 			}
 
 			if errCount > 0 {
 				return fmt.Errorf("%d file(s) failed validation", errCount)
 			}
 
-			fmt.Fprintf(os.Stderr, "ok: %d file(s) checked\n", len(files))
+			msg := fmt.Sprintf("ok: %d file(s) checked", len(files))
+			if warnCount > 0 {
+				msg += fmt.Sprintf(", %d warning(s)", warnCount)
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", msg)
 			return nil
 		},
 	}
@@ -391,8 +405,12 @@ func resolveOutputPath(inputFile, inputArg, output string) (string, error) {
 		return "", err
 	}
 
-	// If the input was a single file, output is used as-is (file path).
+	// If the input was a single file, check if output looks like a directory.
 	if !info.IsDir() {
+		// Trailing slash or existing directory → write filename into that dir.
+		if strings.HasSuffix(output, "/") || isDir(output) {
+			return filepath.Join(output, filepath.Base(inputFile)), nil
+		}
 		return output, nil
 	}
 
@@ -404,6 +422,11 @@ func resolveOutputPath(inputFile, inputArg, output string) (string, error) {
 	}
 
 	return filepath.Join(output, rel), nil
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 var frontmatterRe = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n)`)

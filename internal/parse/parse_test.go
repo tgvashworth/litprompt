@@ -89,3 +89,30 @@ func TestFindImports_remote(t *testing.T) {
 		t.Error("should be detected as remote")
 	}
 }
+
+func TestFindSuspectedImports_trailing_content(t *testing.T) {
+	input := "@[safety](./safety.md).\n"
+	suspected := FindSuspectedImports(input)
+	if len(suspected) != 1 {
+		t.Fatalf("expected 1 suspected import, got %d", len(suspected))
+	}
+	if suspected[0].Line != 0 {
+		t.Errorf("expected line 0, got %d", suspected[0].Line)
+	}
+}
+
+func TestFindSuspectedImports_valid_import_not_suspected(t *testing.T) {
+	input := "@[safety](./safety.md)\n"
+	suspected := FindSuspectedImports(input)
+	if len(suspected) != 0 {
+		t.Errorf("valid import should not be suspected, got %d", len(suspected))
+	}
+}
+
+func TestFindSuspectedImports_inline_not_suspected(t *testing.T) {
+	input := "see @[this](./file.md) for more\n"
+	suspected := FindSuspectedImports(input)
+	if len(suspected) != 0 {
+		t.Errorf("inline @[] should not be suspected, got %d", len(suspected))
+	}
+}

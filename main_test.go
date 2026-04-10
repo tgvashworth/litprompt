@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 )
 
@@ -52,5 +53,51 @@ func TestInsertHeader_invalidMode(t *testing.T) {
 	got := insertHeader(input, "invalid", "src/prompt.md")
 	if got != input {
 		t.Errorf("insertHeader invalid mode should be passthrough:\ngot:  %q\nwant: %q", got, input)
+	}
+}
+
+func TestResolveOutputPath_singleFileToDir(t *testing.T) {
+	srcDir := t.TempDir()
+	outDir := t.TempDir()
+	inputFile := srcDir + "/prompt.md"
+	os.WriteFile(inputFile, []byte("# test\n"), 0o644)
+
+	got, err := resolveOutputPath(inputFile, inputFile, outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := outDir + "/prompt.md"
+	if got != want {
+		t.Errorf("resolveOutputPath single file to dir:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestResolveOutputPath_singleFileToTrailingSlash(t *testing.T) {
+	srcDir := t.TempDir()
+	inputFile := srcDir + "/prompt.md"
+	os.WriteFile(inputFile, []byte("# test\n"), 0o644)
+
+	// Trailing slash on a non-existent dir — should still map filename into it
+	got, err := resolveOutputPath(inputFile, inputFile, "/tmp/nonexistent-out/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/tmp/nonexistent-out/prompt.md"
+	if got != want {
+		t.Errorf("resolveOutputPath single file to trailing slash:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestResolveOutputPath_singleFileToFile(t *testing.T) {
+	srcDir := t.TempDir()
+	inputFile := srcDir + "/prompt.md"
+	os.WriteFile(inputFile, []byte("# test\n"), 0o644)
+
+	got, err := resolveOutputPath(inputFile, inputFile, "out.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "out.md" {
+		t.Errorf("resolveOutputPath to file:\ngot:  %q\nwant: %q", got, "out.md")
 	}
 }
