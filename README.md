@@ -2,6 +2,10 @@
 
 A build system for prompts and skills: strip comments, resolve imports, compose prompt systems from reusable parts.
 
+![intro gif](./assets/litprompt-2.gif)
+
+_Check out the [higher quality version](./assets/litprompt-2.mp4) too._
+
 ## Example
 
 **Source** (`prompt.md`):
