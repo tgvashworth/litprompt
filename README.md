@@ -1,6 +1,6 @@
 # litprompt
 
-A markdown preprocessor for LLM prompts — strip comments, resolve imports, compose prompt systems from reusable parts.
+A build system for prompts and skills: strip comments, resolve imports, compose prompt systems from reusable parts.
 
 ## Example
 
