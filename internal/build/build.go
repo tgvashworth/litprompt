@@ -25,6 +25,11 @@ type Options struct {
 	// CacheDir is the directory for cached remote content (by hash).
 	// Defaults to ~/.cache/litprompt/ if empty.
 	CacheDir string
+
+	// Vars holds the merged variable values from --vars files. nil means
+	// no --vars was supplied; in that case any variable directive in the
+	// source is reported as unresolved.
+	Vars map[string]string
 }
 
 // importChain tracks the current import path for circular detection.
@@ -78,7 +83,11 @@ func Build(inputPath string, opts Options) (string, error) {
 	lf, _ := lockfile.Load(lockPath)
 
 	chain := newChain()
-	return buildFile(absPath, opts, lf, chain, true)
+	flattened, err := buildFile(absPath, opts, lf, chain, true)
+	if err != nil {
+		return "", err
+	}
+	return finalize(flattened, opts)
 }
 
 // BuildString processes markdown content from a string (e.g. stdin).
@@ -107,7 +116,18 @@ func BuildString(content string, baseDir string, opts Options) (string, error) {
 		return "", err
 	}
 
-	return result, nil
+	return finalize(result, opts)
+}
+
+// finalize runs variable substitution on the flattened build output and
+// returns an error listing any unresolved variable names.
+func finalize(flattened string, opts Options) (string, error) {
+	substituted, missing := SubstituteVars(flattened, opts.Vars)
+	if len(missing) > 0 {
+		return "", fmt.Errorf("unresolved variables: %s (supply values via --vars)",
+			strings.Join(missing, ", "))
+	}
+	return substituted, nil
 }
 
 func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *importChain, isRoot bool) (string, error) {
@@ -138,21 +158,18 @@ func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *impor
 	return content, nil
 }
 
-var importLinePattern = regexp.MustCompile(`^\s*@\[([^\]]+)\]\(([^)]+)\)$`)
-
 func resolveImports(content string, fromPath string, opts Options, lf *lockfile.Lockfile, chain *importChain) (string, error) {
 	fromDir := filepath.Dir(fromPath)
 	lines := strings.Split(content, "\n")
 
 	var result []string
 	for _, line := range lines {
-		matches := importLinePattern.FindStringSubmatch(line)
-		if matches == nil {
+		_, target, ok := parse.MatchImportLine(line)
+		if !ok {
 			result = append(result, line)
 			continue
 		}
 
-		target := matches[2]
 		imported, err := resolveImport(target, fromDir, opts, lf, chain)
 		if err != nil {
 			return "", err
@@ -180,10 +197,28 @@ func resolveLocalImport(target string, fromDir string, opts Options, lf *lockfil
 	}
 
 	if _, err := os.Stat(absTarget); os.IsNotExist(err) {
+		if strings.HasPrefix(target, "#") && hashTargetLooksLikeVar(target) {
+			return "", fmt.Errorf("import not found: %s (did you mean an UPPER_CASE variable name? e.g. %s)",
+				target, strings.ToUpper(target))
+		}
 		return "", fmt.Errorf("import not found: %s", target)
 	}
 
 	return buildFile(absTarget, opts, lf, chain, false)
+}
+
+// hashTargetLooksLikeVar reports whether a `#NAME` target appears to be an
+// attempted variable reference with the wrong case.
+func hashTargetLooksLikeVar(target string) bool {
+	if len(target) < 2 {
+		return false
+	}
+	for _, r := range target[1:] {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveRemoteImport(url string, opts Options, lf *lockfile.Lockfile, chain *importChain) (string, error) {

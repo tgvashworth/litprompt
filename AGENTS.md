@@ -17,27 +17,34 @@ mise run lint                         # go vet
 ## Architecture
 
 ```
-main.go                   CLI entrypoint (cobra). Defines build, check, and lock commands.
-                          Also: insertHeader (--header flag), resolveInputFiles (recursive walk + --match).
-internal/build/build.go   Core build orchestrator. Reads a file, strips comments,
-                          resolves imports recursively, detects circular imports.
-                          Remote imports read from cache by content hash.
-internal/parse/parse.go   Comment stripping (regex) and import finding. No I/O.
-internal/gitfetch/        Parses GitHub/GitLab/Bitbucket URLs, fetches files via git CLI
-                          with HTTPS→SSH fallback. Used by the lock command.
-internal/lockfile/        Parses and writes litprompt.lock, verifies SHA-256 content hashes.
-integration/              Ginkgo test suite. Auto-discovers fixture dirs from tests/.
-tests/*/                  46 fixture-based test cases.
+main.go                       CLI entrypoint (cobra). Defines build, check, and lock commands.
+                              Also: insertHeader (--header flag), resolveInputFiles (recursive walk + --match).
+internal/build/build.go       Core build orchestrator. Reads a file, strips comments,
+                              resolves imports recursively, detects circular imports.
+                              Remote imports read from cache by content hash. After
+                              flattening, calls SubstituteVars on the output.
+internal/build/substitute.go  Variable substitution. Walks the flattened output line-by-line,
+                              skipping fenced code blocks and inline code spans. Returns
+                              the substituted content plus a sorted list of unresolved names.
+internal/parse/parse.go       Comment stripping, import finding, variable directive finding,
+                              and import/variable disambiguation (MatchImportLine). No I/O.
+internal/gitfetch/            Parses GitHub/GitLab/Bitbucket URLs, fetches files via git CLI
+                              with HTTPS→SSH fallback. Used by the lock command.
+internal/lockfile/            Parses and writes litprompt.lock, verifies SHA-256 content hashes.
+internal/varsfile/            Hand-rolled .env parser. Load merges multiple files (later wins).
+integration/                  Ginkgo test suite. Auto-discovers fixture dirs from tests/.
+tests/*/                      Fixture-based test cases (success or error per directory).
 ```
 
-**Data flow:** CLI calls `build.Build(path, opts)` which reads the file, calls `parse.StripComments`, then walks each `@[label](target)` import line, recursively calling `buildFile` for local imports or `resolveRemoteImport` for URLs. Remote imports read cached content from `~/.cache/litprompt/` by hash, verified against `litprompt.lock`. The `lock` command uses `gitfetch.FetchFile` to populate the cache.
+**Data flow:** CLI calls `build.Build(path, opts)` which reads the file, calls `parse.StripComments`, then walks each `@[label](target)` import line, recursively calling `buildFile` for local imports or `resolveRemoteImport` for URLs. Once the output is flattened, `Build` calls `SubstituteVars` to replace `@[placeholder](#NAME)` directives using `opts.Vars` (loaded from `--vars` files via `varsfile.Load`); any unresolved name aborts the build. Remote imports read cached content from `~/.cache/litprompt/` by hash, verified against `litprompt.lock`. The `lock` command uses `gitfetch.FetchFile` to populate the cache.
 
 ## Directive syntax
 
-Two directives, both using `@`:
+Three directives, all using `@`:
 
 - **Comments:** `<!-- @ ... -->` -- stripped entirely from output. Regular HTML comments pass through.
-- **Imports:** `@[label](./path.md)` -- replaced with the imported file's content. Supports local relative paths and HTTPS URLs. YAML frontmatter is stripped from imported files (root frontmatter is preserved).
+- **Imports:** `@[label](./path.md)` -- replaced with the imported file's content. Supports local relative paths and HTTPS URLs. Must be at the start of a line. YAML frontmatter is stripped from imported files (root frontmatter is preserved).
+- **Variables:** `@[placeholder](#NAME)` -- substituted at build time from `--vars file.env`. `NAME` must match `[A-Z_][A-Z0-9_]*`; the placeholder is the literal value rendered in the raw source. Variables can appear anywhere on a line; directives inside fenced code blocks or inline code spans are preserved. Missing variables are a hard build error.
 
 ## Test strategy
 
@@ -75,6 +82,8 @@ The integration suite (`integration/build_test.go`) auto-discovers all directori
 - **`@` as the directive character:** Chosen to be visually distinct in markdown while not conflicting with standard markdown syntax. Both comments (`<!-- @ -->`) and imports (`@[label](path)`) use it.
 - **Lockfile discovery:** `litprompt.lock` is discovered from the current working directory (like `package.json` or `terraform.lock`). `Options.LockfilePath` can override this. Remote imports require a lockfile entry with SHA-256 content hashes. The build never fetches from the network -- `litprompt lock` is the only command that hits the network.
 - **Directory mode:** `litprompt build <dir/>` recursively walks the directory. `--match` filters files by glob pattern (uses `doublestar` library for `**` support). Output mirrors the input directory structure.
-- **No templating:** Variables, conditionals, and loops are explicitly out of scope. The tool does two things: strip comments and resolve imports. Use a template engine upstream if you need more.
+- **Minimal templating:** A single placeholder mechanism (`@[value](#NAME)` substituted from `--vars` files in `.env` format) is the only build-time templating. Loops, conditionals, value interpolation, and richer control flow remain out of scope.
+- **Variable / import disambiguation:** A line matching `@[X](Y)` is an import unless `Y` matches `^#[A-Z_][A-Z0-9_]*$`, in which case it's a variable. UPPER_SNAKE_CASE is enforced both to match `.env` convention and to give a mechanical disambiguator (import targets always contain `.`, `/`, or `:`).
+- **Substitute last:** Variable substitution runs on the fully flattened output, after all imports resolve. This makes substituted values literal — they are not re-parsed for `@[X](Y)` shape — which prevents a value containing `@[x](./y.md)` from being interpreted as an import. The trade-off is that error messages don't carry source-file line numbers.
 - **Frontmatter handling:** YAML frontmatter is preserved in the root file but stripped from all imported files, so the final output has at most one frontmatter block.
 - **Circular import detection:** Uses an ordered set (`importChain`) tracking the current call stack. Errors include the full cycle path for debugging.

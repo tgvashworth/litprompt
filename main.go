@@ -16,6 +16,7 @@ import (
 	"github.com/tgvashworth/litprompt/internal/gitfetch"
 	"github.com/tgvashworth/litprompt/internal/lockfile"
 	"github.com/tgvashworth/litprompt/internal/parse"
+	"github.com/tgvashworth/litprompt/internal/varsfile"
 )
 
 // version is set at build time via ldflags.
@@ -29,6 +30,7 @@ var (
 	outputTo  string
 	matchGlob string
 	header    string
+	varsFiles []string
 )
 
 func main() {
@@ -36,10 +38,11 @@ func main() {
 		Use:     "litprompt",
 		Short:   "A markdown preprocessor for LLM prompts",
 		Version: version,
-		Long: `litprompt builds LLM prompts from markdown files with comments and imports.
+		Long: `litprompt builds LLM prompts from markdown files with comments, imports, and variables.
 
 Comments (<!-- @ ... -->) are stripped from the output.
 Imports (@[label](./path.md)) inline content from other files.
+Variables (@[default](#NAME)) are substituted from --vars files at build time.
 Remote imports require a litprompt.lock with content hashes.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			setupLogging()
@@ -93,6 +96,7 @@ Examples:
 	cmd.Flags().StringVarP(&outputTo, "output", "o", "", "output file or directory")
 	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
 	cmd.Flags().StringVar(&header, "header", "", "add a generated-file comment: 'short' or 'full'")
+	cmd.Flags().StringSliceVar(&varsFiles, "vars", nil, ".env-format file of variable values (repeatable; later files override earlier on key collision)")
 
 	return cmd
 }
@@ -103,7 +107,8 @@ func checkCmd() *cobra.Command {
 		Short: "Validate imports resolve, lockfile is current, no cycles",
 		Long: `Check validates markdown files without producing output.
 It verifies that all imports resolve, the lockfile is current for remote
-imports, and there are no circular dependencies.`,
+imports, all variable directives resolve against --vars (if supplied),
+and there are no circular dependencies.`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -112,7 +117,10 @@ imports, and there are no circular dependencies.`,
 				return err
 			}
 
-			opts := buildOpts()
+			opts, err := buildOpts()
+			if err != nil {
+				return err
+			}
 			errCount := 0
 			warnCount := 0
 			for _, f := range files {
@@ -149,6 +157,7 @@ imports, and there are no circular dependencies.`,
 	}
 
 	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
+	cmd.Flags().StringSliceVar(&varsFiles, "vars", nil, ".env-format file of variable values (repeatable; later files override earlier on key collision)")
 
 	return cmd
 }
@@ -259,18 +268,28 @@ func runLock(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func buildOpts() build.Options {
+func buildOpts() (build.Options, error) {
 	opts := build.Options{MockDir: mockDir}
 	cwd, err := os.Getwd()
 	if err == nil {
 		opts.LockfilePath = filepath.Join(cwd, "litprompt.lock")
 	}
-	return opts
+	if len(varsFiles) > 0 {
+		vars, err := varsfile.Load(varsFiles)
+		if err != nil {
+			return opts, err
+		}
+		opts.Vars = vars
+	}
+	return opts, nil
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
 	input := args[0]
-	opts := buildOpts()
+	opts, err := buildOpts()
+	if err != nil {
+		return err
+	}
 
 	// Handle stdin
 	if input == "-" {
