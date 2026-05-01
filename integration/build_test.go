@@ -3,12 +3,14 @@ package integration_test
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/tgvashworth/litprompt/internal/build"
+	"github.com/tgvashworth/litprompt/internal/varsfile"
 )
 
 var _ = Describe("Build", func() {
@@ -110,5 +112,18 @@ func buildOpts(testDir string) build.Options {
 	if fileExists(mockDir) {
 		opts.MockDir = mockDir
 	}
+
+	// Pick up vars.env, vars.env.1, vars.env.2, ... in sorted order.
+	// Any number of files; later files override earlier on key collision.
+	matches, _ := filepath.Glob(filepath.Join(srcDir, "vars.env*"))
+	sort.Strings(matches)
+	if len(matches) > 0 {
+		vars, err := varsfile.Load(matches)
+		if err != nil {
+			Fail("loading vars files for " + testDir + ": " + err.Error())
+		}
+		opts.Vars = vars
+	}
+
 	return opts
 }
