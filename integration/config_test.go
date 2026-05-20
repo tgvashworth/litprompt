@@ -67,11 +67,14 @@ var _ = Describe("Config builds", func() {
 })
 
 func copyTree(src, dst string) {
-	filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(src, path)
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
@@ -82,6 +85,9 @@ func copyTree(src, dst string) {
 		}
 		return os.WriteFile(target, data, 0o644)
 	})
+	if err != nil {
+		Fail("copyTree failed: " + err.Error())
+	}
 }
 
 func findRepoRoot() string {

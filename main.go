@@ -357,7 +357,9 @@ func runBuildFromConfig(opts build.Options) error {
 	if errCount > 0 {
 		return fmt.Errorf("%d of %d build(s) failed", errCount, len(items))
 	}
-	fmt.Fprintf(os.Stderr, "ok: built %d file(s)\n", len(items))
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "ok: built %d file(s)\n", len(items))
+	}
 	return nil
 }
 

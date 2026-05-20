@@ -134,6 +134,19 @@ func TestResolve_singleFile_siblingOutput(t *testing.T) {
 	}
 }
 
+func TestResolve_singleFile_directoryOutput(t *testing.T) {
+	dir := setupTree(t, map[string]string{"a.md": "x"})
+	cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "out/"}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"a.md -> out/a.md"}
+	if g := sortedSrcOut(got); !equal(g, want) {
+		t.Errorf("got %v, want %v", g, want)
+	}
+}
+
 func TestResolve_singleFile_missing_errors(t *testing.T) {
 	cfg := &Config{Builds: []BuildSpec{{Source: "nope.md", Output: "x.md"}}}
 	if _, err := cfg.Resolve(t.TempDir()); err == nil {
@@ -163,11 +176,16 @@ func TestResolve_directoryMode_mirrorsTree(t *testing.T) {
 	}
 }
 
-func TestResolve_directoryMode_bareFilenameOutput_errors(t *testing.T) {
+func TestResolve_directoryMode_bareFilenameOutput(t *testing.T) {
 	dir := setupTree(t, map[string]string{"src/a.md": "x"})
-	cfg := &Config{Builds: []BuildSpec{{Source: "src/", Output: "out.md"}}}
-	if _, err := cfg.Resolve(dir); err == nil {
-		t.Error("expected error for directory source with bare-filename output, got nil")
+	cfg := &Config{Builds: []BuildSpec{{Source: "src/", Output: "out"}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"src/a.md -> out/a.md"}
+	if g := sortedSrcOut(got); !equal(g, want) {
+		t.Errorf("got %v, want %v", g, want)
 	}
 }
 

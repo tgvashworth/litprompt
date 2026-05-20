@@ -144,14 +144,13 @@ func resolveFile(dir string, b BuildSpec) ([]Resolved, error) {
 	out := b.Output
 	if isBareFilename(out) {
 		out = filepath.Join(filepath.Dir(b.Source), out)
+	} else if strings.HasSuffix(out, "/") {
+		out = filepath.Join(out, filepath.Base(b.Source))
 	}
 	return []Resolved{{Source: b.Source, Output: out, Header: b.Header}}, nil
 }
 
 func resolveDir(dir string, b BuildSpec) ([]Resolved, error) {
-	if isBareFilename(b.Output) {
-		return nil, fmt.Errorf("directory source requires a directory output, got bare filename %q", b.Output)
-	}
 	srcDir := strings.TrimSuffix(b.Source, "/")
 	outDir := strings.TrimSuffix(b.Output, "/")
 	absSrc := filepath.Join(dir, srcDir)
@@ -198,13 +197,25 @@ func resolveGlob(dir string, b BuildSpec) ([]Resolved, error) {
 	if err != nil {
 		return nil, fmt.Errorf("expanding glob %q: %w", b.Source, err)
 	}
-	if len(matches) == 0 {
+
+	// Filter out directories — only regular files are valid build sources.
+	var files []string
+	for _, m := range matches {
+		info, err := os.Stat(filepath.Join(dir, m))
+		if err != nil {
+			return nil, fmt.Errorf("stat %s: %w", m, err)
+		}
+		if !info.IsDir() {
+			files = append(files, m)
+		}
+	}
+	if len(files) == 0 {
 		return nil, fmt.Errorf("glob %q matched no files", b.Source)
 	}
-	sort.Strings(matches)
+	sort.Strings(files)
 
-	resolved := make([]Resolved, 0, len(matches))
-	for _, m := range matches {
+	resolved := make([]Resolved, 0, len(files))
+	for _, m := range files {
 		resolved = append(resolved, Resolved{
 			Source: m,
 			Output: filepath.Join(filepath.Dir(m), b.Output),
