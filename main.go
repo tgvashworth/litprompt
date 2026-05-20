@@ -13,6 +13,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/spf13/cobra"
 	"github.com/tgvashworth/litprompt/internal/build"
+	"github.com/tgvashworth/litprompt/internal/config"
 	"github.com/tgvashworth/litprompt/internal/gitfetch"
 	"github.com/tgvashworth/litprompt/internal/lockfile"
 	"github.com/tgvashworth/litprompt/internal/parse"
@@ -76,16 +77,21 @@ func setupLogging() {
 
 func buildCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "build <file.md|dir/>",
+		Use:   "build [file.md|dir/]",
 		Short: "Build one or more markdown files",
 		Long: `Build processes markdown files, stripping comments
 and resolving imports. Output goes to stdout by default.
 
+With no argument, reads litprompt.yaml (or .yml) from the current directory
+and builds every entry in it. CLI flags (-o, --header, --match) are ignored
+in that mode — per-build settings come from the config.
+
 Examples:
+  litprompt build                      # build everything in litprompt.yaml
   litprompt build prompt.md            # build one file, print to stdout
   litprompt build prompt.md -o out.md  # build one file to a specific output
   litprompt build prompts/ -o out/     # build all .md files in directory`,
-		Args:         cobra.ExactArgs(1),
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE:         runBuild,
 	}
@@ -269,8 +275,13 @@ func buildOpts() build.Options {
 }
 
 func runBuild(cmd *cobra.Command, args []string) error {
-	input := args[0]
 	opts := buildOpts()
+
+	if len(args) == 0 {
+		return runBuildFromConfig(opts)
+	}
+
+	input := args[0]
 
 	// Handle stdin
 	if input == "-" {
@@ -299,45 +310,91 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, f := range files {
-		slog.Info("building", "file", f)
-
-		result, err := build.Build(f, opts)
-		if err != nil {
-			return fmt.Errorf("building %s: %w", f, err)
-		}
-
-		if header != "" {
-			// Use path relative to cwd for the header.
-			srcRel := f
-			if cwd, err := os.Getwd(); err == nil {
-				if rel, err := filepath.Rel(cwd, f); err == nil {
-					srcRel = rel
-				}
-			}
-			result = insertHeader(result, header, srcRel)
-		}
-
-		if outputTo == "" {
-			// stdout
-			fmt.Print(result)
-		} else {
-			outPath, err := resolveOutputPath(f, input, outputTo)
+		var outPath string
+		if outputTo != "" {
+			outPath, err = resolveOutputPath(f, input, outputTo)
 			if err != nil {
 				return err
 			}
-
-			if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-				return fmt.Errorf("creating output directory: %w", err)
-			}
-
-			if err := os.WriteFile(outPath, []byte(result), 0o644); err != nil {
-				return fmt.Errorf("writing %s: %w", outPath, err)
-			}
-
-			slog.Info("wrote", "file", outPath)
+		}
+		if err := buildOne(f, outPath, header, opts); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// runBuildFromConfig runs every build declared in litprompt.yaml, continuing
+// on errors and returning a non-nil error if any failed.
+func runBuildFromConfig(opts build.Options) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	cfg, err := config.Load(cwd)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return fmt.Errorf("no source given and no litprompt.yaml in %s", cwd)
+	}
+
+	items, err := cfg.Resolve(cwd)
+	if err != nil {
+		return err
+	}
+
+	errCount := 0
+	for _, r := range items {
+		if err := buildOne(r.Source, r.Output, r.Header, opts); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR %s: %s\n", r.Source, err)
+			errCount++
+		}
+	}
+
+	if errCount > 0 {
+		return fmt.Errorf("%d of %d build(s) failed", errCount, len(items))
+	}
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "ok: built %d file(s)\n", len(items))
+	}
+	return nil
+}
+
+// buildOne builds a single source file, optionally writing to outPath (empty
+// → stdout) and optionally prepending a header.
+func buildOne(srcPath, outPath, headerMode string, opts build.Options) error {
+	slog.Info("building", "file", srcPath)
+
+	result, err := build.Build(srcPath, opts)
+	if err != nil {
+		return fmt.Errorf("building %s: %w", srcPath, err)
+	}
+
+	if headerMode != "" {
+		srcRel := srcPath
+		if cwd, err := os.Getwd(); err == nil {
+			if rel, err := filepath.Rel(cwd, srcPath); err == nil {
+				srcRel = rel
+			}
+		}
+		result = insertHeader(result, headerMode, srcRel)
+	}
+
+	if outPath == "" {
+		fmt.Print(result)
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	}
+	if err := os.WriteFile(outPath, []byte(result), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", outPath, err)
+	}
+	slog.Info("wrote", "file", outPath)
 	return nil
 }
 

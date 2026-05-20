@@ -1,0 +1,8 @@
+builds:
+  - source: agents-src/
+    output: agents/
+  - source: plugins/*/skills/*/SKILL.src.md
+    output: SKILL.md
+    header: full
+  - source: single.md
+    output: dist/single-out.md
