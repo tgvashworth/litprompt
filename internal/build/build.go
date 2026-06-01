@@ -125,7 +125,7 @@ func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *impor
 	content := string(data)
 
 	if !isRoot {
-		content = stripFrontmatter(content)
+		content = StripFrontmatter(content)
 	}
 
 	content = parse.StripComments(content)
@@ -205,7 +205,7 @@ func resolveRemoteImport(url string, opts Options, lf *lockfile.Lockfile, chain 
 		return "", fmt.Errorf("hash mismatch for %s", url)
 	}
 
-	result := stripFrontmatter(content)
+	result := StripFrontmatter(content)
 	result = parse.StripComments(result)
 
 	return result, nil
@@ -253,7 +253,9 @@ func urlToMockPath(rawURL string) string {
 
 var frontmatterPattern = regexp.MustCompile(`(?s)\A---\n.*?\n---\n?`)
 
-func stripFrontmatter(content string) string {
+// StripFrontmatter removes a leading YAML frontmatter block from content,
+// returning the body. Exported so callers can hash the body that a model reads.
+func StripFrontmatter(content string) string {
 	loc := frontmatterPattern.FindStringIndex(content)
 	if loc == nil {
 		return content

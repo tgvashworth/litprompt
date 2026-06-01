@@ -158,9 +158,9 @@ func TestResolve_singleFile_missing_errors(t *testing.T) {
 
 func TestResolve_directoryMode_mirrorsTree(t *testing.T) {
 	dir := setupTree(t, map[string]string{
-		"src/a.md":         "x",
-		"src/sub/b.md":     "y",
-		"src/skip.txt":     "skipped",
+		"src/a.md":     "x",
+		"src/sub/b.md": "y",
+		"src/skip.txt": "skipped",
 	})
 	cfg := &Config{Builds: []BuildSpec{{Source: "src/", Output: "out/"}}}
 	got, err := cfg.Resolve(dir)
@@ -288,6 +288,102 @@ func TestResolve_invalidHeader_errors(t *testing.T) {
 	cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "b.md", Header: "wrong"}}}
 	if _, err := cfg.Resolve(dir); err == nil {
 		t.Error("expected error for invalid header, got nil")
+	}
+}
+
+// --- Resolve: per-build interlock ---
+
+func TestResolve_carriesInterlock(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"plugins/a/skills/x/SKILL.src.md": "x",
+		"plugins/a/skills/y/SKILL.src.md": "y",
+	})
+	cfg := &Config{Builds: []BuildSpec{{
+		Source:    "plugins/*/skills/*/SKILL.src.md",
+		Output:    "SKILL.md",
+		Interlock: "enforce",
+	}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resolved builds, got %d", len(got))
+	}
+	for _, r := range got {
+		if r.Interlock != "enforce" {
+			t.Errorf("expected interlock 'enforce' on %s, got %q", r.Source, r.Interlock)
+		}
+	}
+}
+
+func TestResolve_defaultsInterlockToOff(t *testing.T) {
+	dir := setupTree(t, map[string]string{"a.md": "x"})
+	cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "b.md"}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Interlock != "off" {
+		t.Errorf("expected interlock 'off', got %#v", got)
+	}
+}
+
+func TestResolve_invalidInterlock_errors(t *testing.T) {
+	dir := setupTree(t, map[string]string{"a.md": "x"})
+	cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "b.md", Interlock: "wrong"}}}
+	_, err := cfg.Resolve(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid interlock, got nil")
+	}
+	if !strings.Contains(err.Error(), "analytics") && !strings.Contains(err.Error(), "enforce") {
+		t.Errorf("error should list valid modes, got: %v", err)
+	}
+}
+
+func TestLoad_parsesInterlockBlock(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"a.md": "x",
+		"litprompt.yaml": `interlock:
+  param: tokens
+  manifest: out/locks.json
+  message:
+    enforce: "must pass {token} as {param}"
+builds:
+  - source: a.md
+    output: b.md
+    interlock: analytics
+`,
+	})
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Interlock == nil {
+		t.Fatal("expected interlock block to be parsed")
+	}
+	if cfg.Interlock.Param != "tokens" || cfg.Interlock.Manifest != "out/locks.json" {
+		t.Errorf("unexpected interlock config: %#v", cfg.Interlock)
+	}
+	if cfg.Interlock.Message["enforce"] != "must pass {token} as {param}" {
+		t.Errorf("unexpected message: %#v", cfg.Interlock.Message)
+	}
+	if cfg.Builds[0].Interlock != "analytics" {
+		t.Errorf("expected per-build interlock 'analytics', got %q", cfg.Builds[0].Interlock)
+	}
+}
+
+func TestInterlockSettings_appliesDefaults(t *testing.T) {
+	cfg := &Config{}
+	ic := cfg.InterlockSettings()
+	if ic.Param != DefaultInterlockParam || ic.Manifest != DefaultInterlockManifest {
+		t.Errorf("expected defaults, got %#v", ic)
+	}
+
+	cfg = &Config{Interlock: &InterlockConfig{Param: "custom"}}
+	ic = cfg.InterlockSettings()
+	if ic.Param != "custom" || ic.Manifest != DefaultInterlockManifest {
+		t.Errorf("expected custom param with default manifest, got %#v", ic)
 	}
 }
 

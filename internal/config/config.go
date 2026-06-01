@@ -16,22 +16,55 @@ import (
 
 // Config is the parsed litprompt.yaml.
 type Config struct {
-	Builds []BuildSpec `yaml:"builds"`
+	Builds    []BuildSpec      `yaml:"builds"`
+	Interlock *InterlockConfig `yaml:"interlock,omitempty"`
 }
 
 // BuildSpec is one entry in the builds list.
 type BuildSpec struct {
-	Source string `yaml:"source"`
-	Output string `yaml:"output"`
-	Header string `yaml:"header,omitempty"`
+	Source    string `yaml:"source"`
+	Output    string `yaml:"output"`
+	Header    string `yaml:"header,omitempty"`
+	Interlock string `yaml:"interlock,omitempty"` // "" | "off" | "analytics" | "enforce"
+}
+
+// InterlockConfig holds the run-wide interlock settings: the tool-parameter
+// name, the aggregate manifest path, and optional per-mode wording overrides.
+type InterlockConfig struct {
+	Param    string            `yaml:"param,omitempty"`    // default "interlock_tokens"
+	Manifest string            `yaml:"manifest,omitempty"` // default "interlocks.json"
+	Message  map[string]string `yaml:"message,omitempty"`  // keyed by mode
+}
+
+// Default interlock settings, applied by InterlockSettings.
+const (
+	DefaultInterlockParam    = "interlock_tokens"
+	DefaultInterlockManifest = "interlocks.json"
+)
+
+// InterlockSettings returns the resolved interlock settings, applying defaults
+// for any field the config left unset.
+func (c *Config) InterlockSettings() InterlockConfig {
+	var ic InterlockConfig
+	if c.Interlock != nil {
+		ic = *c.Interlock
+	}
+	if ic.Param == "" {
+		ic.Param = DefaultInterlockParam
+	}
+	if ic.Manifest == "" {
+		ic.Manifest = DefaultInterlockManifest
+	}
+	return ic
 }
 
 // Resolved is a single concrete build to run. Paths are relative to the
 // directory passed to Resolve.
 type Resolved struct {
-	Source string
-	Output string
-	Header string
+	Source    string
+	Output    string
+	Header    string
+	Interlock string // normalized mode: "off" | "analytics" | "enforce"
 }
 
 // Load reads litprompt.yaml or litprompt.yml from dir. Returns (nil, nil) if
@@ -96,6 +129,12 @@ func resolveBuild(dir string, b BuildSpec) ([]Resolved, error) {
 	if b.Header != "" && b.Header != "short" && b.Header != "full" {
 		return nil, fmt.Errorf("invalid header %q: must be \"short\" or \"full\"", b.Header)
 	}
+	if b.Interlock != "" && b.Interlock != "off" && b.Interlock != "analytics" && b.Interlock != "enforce" {
+		return nil, fmt.Errorf("invalid interlock %q: must be \"off\", \"analytics\", or \"enforce\"", b.Interlock)
+	}
+	if b.Interlock == "" {
+		b.Interlock = "off"
+	}
 
 	switch detectSourceShape(dir, b.Source) {
 	case shapeFile:
@@ -147,7 +186,7 @@ func resolveFile(dir string, b BuildSpec) ([]Resolved, error) {
 	} else if strings.HasSuffix(out, "/") {
 		out = filepath.Join(out, filepath.Base(b.Source))
 	}
-	return []Resolved{{Source: b.Source, Output: out, Header: b.Header}}, nil
+	return []Resolved{{Source: b.Source, Output: out, Header: b.Header, Interlock: b.Interlock}}, nil
 }
 
 func resolveDir(dir string, b BuildSpec) ([]Resolved, error) {
@@ -180,9 +219,10 @@ func resolveDir(dir string, b BuildSpec) ([]Resolved, error) {
 	resolved := make([]Resolved, 0, len(matches))
 	for _, rel := range matches {
 		resolved = append(resolved, Resolved{
-			Source: filepath.Join(srcDir, rel),
-			Output: filepath.Join(outDir, rel),
-			Header: b.Header,
+			Source:    filepath.Join(srcDir, rel),
+			Output:    filepath.Join(outDir, rel),
+			Header:    b.Header,
+			Interlock: b.Interlock,
 		})
 	}
 	return resolved, nil
@@ -217,9 +257,10 @@ func resolveGlob(dir string, b BuildSpec) ([]Resolved, error) {
 	resolved := make([]Resolved, 0, len(files))
 	for _, m := range files {
 		resolved = append(resolved, Resolved{
-			Source: m,
-			Output: filepath.Join(filepath.Dir(m), b.Output),
-			Header: b.Header,
+			Source:    m,
+			Output:    filepath.Join(filepath.Dir(m), b.Output),
+			Header:    b.Header,
+			Interlock: b.Interlock,
 		})
 	}
 	return resolved, nil

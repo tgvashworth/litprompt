@@ -110,6 +110,38 @@ Globs use `**` for recursive matching. A glob source **must** pair with a bare-f
 
 Failed builds are reported but don't stop the others; `litprompt build` exits non-zero if any failed. CLI flags (`-o`, `--header`, `--match`) are ignored when reading config.
 
+## Interlocks
+
+An [interlock](https://tgvashworth.com/2026/05/25/skill-tool-interlock.html) stamps a token into a built skill so a paired tool can tell whether the skill was actually read. litprompt only stamps the token and emits a manifest — the tool that logs or enforces it lives elsewhere.
+
+Turn it on per build with an `interlock` mode (`off`, `analytics`, or `enforce`), plus an optional top-level block for the shared knobs:
+
+```yaml
+interlock:
+  param: interlock_tokens     # tool-parameter name in the line (default)
+  manifest: interlocks.json   # one aggregate manifest for the run (default)
+builds:
+  - source: plugins/*/skills/*/SKILL.src.md
+    output: SKILL.md
+    interlock: enforce
+```
+
+Each built file gets a line after its frontmatter:
+
+```
+Interlock: `chart-builder:db13d3df:fed100da` — you MUST pass this as `interlock_tokens` when you call the tool, or the call will be rejected.
+```
+
+The token is `task:id:version`:
+
+- **`task`** — display slug from the source's `name:`. Advisory; never verified.
+- **`id`** — stable 8-hex identity, derived from the source frontmatter's `interlock:` value if present, else its `name:`. This is the verification key — enforce on `id` only. A source with neither field is a hard error (so two files both named `SKILL.md` don't collide on the same id).
+- **`version`** — 8-hex hash of the built body (frontmatter excluded, imports included, so staleness propagates transitively). A staleness signal only; never enforced.
+
+The single `manifest` is keyed by output path and lists every stamped skill — the consuming tool loads it for the set of valid `id`s and the current `version` per id. `analytics` mode emits the same token with softer wording (logged, never rejected); override the wording per mode via `interlock.message` using `{token}` and `{param}` placeholders.
+
+The args path has matching flags for one-off builds: `--interlock`, `--interlock-param`, `--interlock-manifest` (ignored when reading config).
+
 ## Syntax
 
 Two features, both using `@` applied to standard markdown constructs.
