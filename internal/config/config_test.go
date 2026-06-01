@@ -373,6 +373,81 @@ builds:
 	}
 }
 
+func TestResolve_carriesInterlockDirMode(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"src/a.md":     "x",
+		"src/sub/b.md": "y",
+	})
+	cfg := &Config{Builds: []BuildSpec{{Source: "src/", Output: "out/", Interlock: "analytics"}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 resolved builds, got %d", len(got))
+	}
+	for _, r := range got {
+		if r.Interlock != "analytics" {
+			t.Errorf("expected interlock 'analytics' on %s, got %q", r.Source, r.Interlock)
+		}
+	}
+}
+
+func TestResolve_acceptsAllInterlockModes(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", "off"},
+		{"off", "off"},
+		{"analytics", "analytics"},
+		{"enforce", "enforce"},
+	}
+	for _, c := range cases {
+		dir := setupTree(t, map[string]string{"a.md": "x"})
+		cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "b.md", Interlock: c.in}}}
+		got, err := cfg.Resolve(dir)
+		if err != nil {
+			t.Fatalf("mode %q: unexpected error: %v", c.in, err)
+		}
+		if len(got) != 1 || got[0].Interlock != c.want {
+			t.Errorf("mode %q: expected resolved %q, got %#v", c.in, c.want, got)
+		}
+	}
+}
+
+func TestResolve_mixedInterlockModesPerBuild(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"a.md": "x",
+		"b.md": "y",
+		"c.md": "z",
+	})
+	cfg := &Config{Builds: []BuildSpec{
+		{Source: "a.md", Output: "out/a.md", Interlock: "analytics"},
+		{Source: "b.md", Output: "out/b.md", Interlock: "enforce"},
+		{Source: "c.md", Output: "out/c.md"},
+	}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{"out/a.md": "analytics", "out/b.md": "enforce", "out/c.md": "off"}
+	for _, r := range got {
+		if want[r.Output] != r.Interlock {
+			t.Errorf("output %s: expected interlock %q, got %q", r.Output, want[r.Output], r.Interlock)
+		}
+	}
+}
+
+func TestResolve_carriesHeaderAndInterlockTogether(t *testing.T) {
+	dir := setupTree(t, map[string]string{"a.md": "x"})
+	cfg := &Config{Builds: []BuildSpec{{Source: "a.md", Output: "b.md", Header: "full", Interlock: "enforce"}}}
+	got, err := cfg.Resolve(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Header != "full" || got[0].Interlock != "enforce" {
+		t.Errorf("expected header 'full' and interlock 'enforce', got %#v", got)
+	}
+}
+
 func TestInterlockSettings_appliesDefaults(t *testing.T) {
 	cfg := &Config{}
 	ic := cfg.InterlockSettings()
@@ -384,6 +459,65 @@ func TestInterlockSettings_appliesDefaults(t *testing.T) {
 	ic = cfg.InterlockSettings()
 	if ic.Param != "custom" || ic.Manifest != DefaultInterlockManifest {
 		t.Errorf("expected custom param with default manifest, got %#v", ic)
+	}
+
+	cfg = &Config{Interlock: &InterlockConfig{Manifest: "locks.json"}}
+	ic = cfg.InterlockSettings()
+	if ic.Param != DefaultInterlockParam || ic.Manifest != "locks.json" {
+		t.Errorf("expected default param with custom manifest, got %#v", ic)
+	}
+}
+
+func TestLoad_noInterlockBlock_perBuildStillCarried(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"a.md":           "x",
+		"litprompt.yaml": "builds:\n  - source: a.md\n    output: b.md\n    interlock: enforce\n",
+	})
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Interlock != nil {
+		t.Errorf("expected no top-level interlock block, got %#v", cfg.Interlock)
+	}
+	if cfg.Builds[0].Interlock != "enforce" {
+		t.Errorf("expected per-build interlock 'enforce', got %q", cfg.Builds[0].Interlock)
+	}
+	// Defaults still apply when the block is omitted.
+	if ic := cfg.InterlockSettings(); ic.Param != DefaultInterlockParam || ic.Manifest != DefaultInterlockManifest {
+		t.Errorf("expected default settings, got %#v", ic)
+	}
+}
+
+func TestLoad_interlockBlock_messageBothModes(t *testing.T) {
+	dir := setupTree(t, map[string]string{
+		"a.md": "x",
+		"litprompt.yaml": `interlock:
+  message:
+    analytics: "log {token} via {param}"
+    enforce: "require {token} via {param}"
+builds:
+  - source: a.md
+    output: b.md
+    interlock: analytics
+`,
+	})
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Interlock == nil {
+		t.Fatal("expected interlock block to be parsed")
+	}
+	if cfg.Interlock.Message["analytics"] != "log {token} via {param}" {
+		t.Errorf("unexpected analytics message: %#v", cfg.Interlock.Message)
+	}
+	if cfg.Interlock.Message["enforce"] != "require {token} via {param}" {
+		t.Errorf("unexpected enforce message: %#v", cfg.Interlock.Message)
+	}
+	// param/manifest unset in the block fall back to defaults.
+	if ic := cfg.InterlockSettings(); ic.Param != DefaultInterlockParam || ic.Manifest != DefaultInterlockManifest {
+		t.Errorf("expected default param/manifest, got %#v", ic)
 	}
 }
 

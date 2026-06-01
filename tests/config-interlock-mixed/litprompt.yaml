@@ -1,0 +1,12 @@
+interlock:
+  param: tokens
+  manifest: locks.json
+  message:
+    analytics: "Read first: `{token}` (pass via `{param}`)."
+builds:
+  - source: skills/*/SKILL.src.md
+    output: SKILL.md
+    interlock: analytics
+    header: full
+  - source: plain.src.md
+    output: plain.md
