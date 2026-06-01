@@ -1,5 +1,5 @@
 // Package interlock derives skill-tool interlock tokens and the aggregate
-// manifest. A token is the triple task:id:version, stamped into a built file so
+// manifest. A token is the triple slug:id:version, stamped into a built file so
 // a consuming tool can observe (analytics) or require (enforce) that the file
 // was read. litprompt only stamps tokens and emits the manifest; the tool side
 // that logs or enforces them lives elsewhere.
@@ -47,15 +47,15 @@ func shortHash(s string) string {
 
 // Identity is the interlock identity derived from a source file's frontmatter.
 type Identity struct {
-	Task           string // display slug — advisory, never verified
+	Slug           string // display slug — advisory, never verified
 	ID             string // 8-hex stable id — the verification key
 	Name           string // raw name: frontmatter value, if present
 	IdentitySource string // "name" | "interlock"
 }
 
-// Token returns the task:id:version triple for this identity.
+// Token returns the slug:id:version triple for this identity.
 func (id Identity) Token(version string) string {
-	return fmt.Sprintf("%s:%s:%s", id.Task, id.ID, version)
+	return fmt.Sprintf("%s:%s:%s", id.Slug, id.ID, version)
 }
 
 type frontmatterFields struct {
@@ -80,17 +80,24 @@ func DeriveIdentity(source string) (Identity, error) {
 
 	switch {
 	case pinned != "":
-		return Identity{Task: taskSlug(name, pinned), ID: shortHash(pinned), Name: name, IdentitySource: "interlock"}, nil
+		// The id derives from the raw pinned value, so it stays unique even
+		// when the value has no slug-safe characters.
+		return Identity{Slug: displaySlug(name, pinned), ID: shortHash(pinned), Name: name, IdentitySource: "interlock"}, nil
 	case name != "":
 		slug := Slugify(name)
-		return Identity{Task: slug, ID: shortHash(slug), Name: name, IdentitySource: "name"}, nil
+		if slug == "" {
+			// The id would derive from an empty slug, colliding with every
+			// other such name. Refuse it and point at the explicit escape hatch.
+			return Identity{}, fmt.Errorf("name %q has no slug-safe characters; add an 'interlock:' frontmatter field to set an explicit id", name)
+		}
+		return Identity{Slug: slug, ID: shortHash(slug), Name: name, IdentitySource: "name"}, nil
 	default:
 		return Identity{}, fmt.Errorf("add a 'name:' or 'interlock:' frontmatter field")
 	}
 }
 
-// taskSlug is slugify(name) when a name is present, else slugify(identity).
-func taskSlug(name, identity string) string {
+// displaySlug is slugify(name) when a name is present, else slugify(identity).
+func displaySlug(name, identity string) string {
 	if name != "" {
 		return Slugify(name)
 	}
@@ -121,7 +128,7 @@ func Line(token, param, mode string, message map[string]string) string {
 
 // ManifestEntry is one skill's interlock record, keyed by output path.
 type ManifestEntry struct {
-	Task           string `json:"task"`
+	Slug           string `json:"slug"`
 	ID             string `json:"id"`
 	Version        string `json:"version"`
 	Name           string `json:"name"`

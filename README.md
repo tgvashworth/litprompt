@@ -132,10 +132,10 @@ Each built file gets a line after its frontmatter:
 Interlock: `chart-builder:db13d3df:fed100da` — you MUST pass this as `interlock_tokens` when you call the tool, or the call will be rejected.
 ```
 
-The token is `task:id:version`:
+The token is `slug:id:version`:
 
-- **`task`** — display slug from the source's `name:`. Advisory; never verified.
-- **`id`** — stable 8-hex identity, derived from the source frontmatter's `interlock:` value if present, else its `name:`. This is the verification key — enforce on `id` only. A source with neither field is a hard error (so two files both named `SKILL.md` don't collide on the same id).
+- **`slug`** — display slug from the source's `name:`. Advisory; never verified.
+- **`id`** — stable 8-hex identity, derived from the source frontmatter's `interlock:` value if present, else its `name:`. This is the verification key — enforce on `id` only. A source with neither field — or a `name:` with no slug-safe characters (e.g. punctuation- or non-ASCII-only) — is a hard error, so two files both named `SKILL.md` don't collide on the same id. Set `interlock:` to pin an explicit id in that case.
 - **`version`** — 8-hex hash of the built body (frontmatter excluded, imports included, so staleness propagates transitively). A staleness signal only; never enforced.
 
 The single `manifest` is keyed by output path and lists every stamped skill — the consuming tool loads it for the set of valid `id`s and the current `version` per id. `analytics` mode emits the same token with softer wording (logged, never rejected); override the wording per mode via `interlock.message` using `{token}` and `{param}` placeholders.

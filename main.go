@@ -611,7 +611,7 @@ func interlockFor(srcPath, result string, il interlockOpts) (string, *interlock.
 
 	version := interlock.Version(build.StripFrontmatter(result))
 	entry := &interlock.ManifestEntry{
-		Task:           id.Task,
+		Slug:           id.Slug,
 		ID:             id.ID,
 		Version:        version,
 		Name:           id.Name,

@@ -34,9 +34,9 @@ func TestDeriveIdentity_interlockWinsOverName(t *testing.T) {
 	if id.ID != shortHash("ca-prod-1") {
 		t.Errorf("id = %q, want hash of pinned value", id.ID)
 	}
-	// task still derives from the display name.
-	if id.Task != "coding-assistant" {
-		t.Errorf("task = %q, want coding-assistant", id.Task)
+	// slug still derives from the display name.
+	if id.Slug != "coding-assistant" {
+		t.Errorf("slug = %q, want coding-assistant", id.Slug)
 	}
 	if id.Name != "Coding Assistant" {
 		t.Errorf("name = %q, want raw name preserved", id.Name)
@@ -55,8 +55,8 @@ func TestDeriveIdentity_nameOnly(t *testing.T) {
 	if id.ID != shortHash("chart-builder") {
 		t.Errorf("id = %q, want hash of slug", id.ID)
 	}
-	if id.Task != "chart-builder" {
-		t.Errorf("task = %q, want chart-builder", id.Task)
+	if id.Slug != "chart-builder" {
+		t.Errorf("slug = %q, want chart-builder", id.Slug)
 	}
 }
 
@@ -69,6 +69,33 @@ func TestDeriveIdentity_neither_errors(t *testing.T) {
 		if _, err := DeriveIdentity(src); err == nil {
 			t.Errorf("expected error for source %q, got nil", src)
 		}
+	}
+}
+
+func TestDeriveIdentity_emptySlugName_errors(t *testing.T) {
+	// A name with no slug-safe characters would hash an empty slug, colliding
+	// across every such file — refuse it rather than mint a degenerate id.
+	for _, name := range []string{"!!!", "日本語", "   ***   ", "---"} {
+		src := "---\nname: " + `"` + name + `"` + "\n---\nbody\n"
+		if _, err := DeriveIdentity(src); err == nil {
+			t.Errorf("expected error for slug-empty name %q, got nil", name)
+		}
+	}
+}
+
+func TestDeriveIdentity_emptySlugName_rescuedByInterlock(t *testing.T) {
+	// The interlock: escape hatch derives the id from the raw value, so a
+	// slug-empty name is fine when an explicit id is pinned.
+	src := "---\nname: \"日本語\"\ninterlock: jp-skill-1\n---\nbody\n"
+	id, err := DeriveIdentity(src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.ID != shortHash("jp-skill-1") {
+		t.Errorf("id = %q, want hash of pinned value", id.ID)
+	}
+	if id.IdentitySource != "interlock" {
+		t.Errorf("identitySource = %q, want interlock", id.IdentitySource)
 	}
 }
 
@@ -118,8 +145,8 @@ func TestLine_customMessage(t *testing.T) {
 
 func TestMarshal_versionedAndSorted(t *testing.T) {
 	entries := map[string]ManifestEntry{
-		"z.md": {Task: "z", ID: "2", Version: "v", Name: "Z", IdentitySource: "name"},
-		"a.md": {Task: "a", ID: "1", Version: "v", Name: "A", IdentitySource: "name"},
+		"z.md": {Slug: "z", ID: "2", Version: "v", Name: "Z", IdentitySource: "name"},
+		"a.md": {Slug: "a", ID: "1", Version: "v", Name: "A", IdentitySource: "name"},
 	}
 	data, err := Marshal(entries)
 	if err != nil {
