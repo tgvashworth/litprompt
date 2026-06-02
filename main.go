@@ -40,7 +40,7 @@ var (
 func main() {
 	root := &cobra.Command{
 		Use:     "litprompt",
-		Short:   "A markdown preprocessor for LLM prompts",
+		Short:   "A build system for prompts and skills",
 		Version: version,
 		Long: `litprompt builds LLM prompts from markdown files with comments and imports.
 
