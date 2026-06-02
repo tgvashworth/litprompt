@@ -1,4 +1,4 @@
-# litprompt — a markdown preprocessor for LLM prompts
+# litprompt — a build system for prompts and skills
 
 *2026-04-10T07:45:47Z by Showboat 0.6.1*
 <!-- showboat-id: fd431dd7-674b-4912-9490-06dd78710943 -->

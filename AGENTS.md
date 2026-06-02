@@ -1,6 +1,6 @@
 # litprompt
 
-A markdown preprocessor for LLM prompts. It strips author-only comments and resolves imports (local and remote) to produce a single flattened markdown file.
+A build system for prompts and skills. It strips author-only comments and resolves imports (local and remote) to produce a single flattened markdown file.
 
 ## Build and test
 
