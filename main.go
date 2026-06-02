@@ -282,7 +282,7 @@ func buildOpts() build.Options {
 	return opts
 }
 
-func runBuild(cmd *cobra.Command, args []string) error {
+func runBuild(cmd *cobra.Command, args []string) (err error) {
 	opts := buildOpts()
 
 	if len(args) == 0 {
@@ -322,6 +322,18 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Write the manifest for whatever built successfully, even if a later file
+	// fails — mirroring the config path, which records successful builds before
+	// returning. A manifest-write failure surfaces only if the build itself did
+	// not already fail.
+	defer func() {
+		if len(il.manifest) > 0 {
+			if werr := writeManifest(il.settings.Manifest, il.manifest); werr != nil && err == nil {
+				err = werr
+			}
+		}
+	}()
+
 	for _, f := range files {
 		var outPath string
 		if outputTo != "" {
@@ -331,12 +343,6 @@ func runBuild(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if err := buildOne(f, outPath, header, il, opts); err != nil {
-			return err
-		}
-	}
-
-	if len(il.manifest) > 0 {
-		if err := writeManifest(il.settings.Manifest, il.manifest); err != nil {
 			return err
 		}
 	}
@@ -472,6 +478,10 @@ func buildOne(srcPath, outPath, headerMode string, il interlockOpts, opts build.
 	if err != nil {
 		return err
 	}
+	// Each insertion goes immediately after the frontmatter, so the line added
+	// last ends up on top. Insert the interlock line first, then the header, to
+	// land on the order frontmatter → header → interlock → body. (Swapping these
+	// two calls would invert that order, not preserve it.)
 	if interlockLine != "" {
 		result = insertAfterFrontmatter(result, interlockLine)
 	}
@@ -587,7 +597,10 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-var frontmatterRe = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n)`)
+// frontmatterRe matches a leading YAML frontmatter block. The trailing newline
+// after the closing --- is optional so a file whose frontmatter ends at EOF is
+// still detected (matching internal/build and internal/interlock).
+var frontmatterRe = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n?)`)
 
 // interlockFor derives the interlock line and manifest entry for a build when
 // interlock is active. The version hash is computed from the built body with

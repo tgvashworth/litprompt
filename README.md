@@ -140,7 +140,7 @@ The token is `slug:id:version`:
 
 The single `manifest` is keyed by output path and lists every stamped skill — the consuming tool loads it for the set of valid `id`s and the current `version` per id. `analytics` mode emits the same token with softer wording (logged, never rejected); override the wording per mode via `interlock.message` using `{token}` and `{param}` placeholders.
 
-The args path has matching flags for one-off builds: `--interlock`, `--interlock-param`, `--interlock-manifest` (ignored when reading config).
+The args path has matching flags for one-off builds: `--interlock`, `--interlock-param`, `--interlock-manifest` (ignored when reading config). A build that writes to stdout (no `-o`) still stamps the interlock line but emits no manifest — the manifest is keyed by output path, so it's only written for file outputs.
 
 For the other half — what to implement in the tool that reads the token and logs or enforces it — see [docs/interlock-consumer.md](docs/interlock-consumer.md).
 
