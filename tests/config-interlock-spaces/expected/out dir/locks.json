@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "interlocks": {
+    "my skills/chart one/SKILL.md": {
+      "slug": "chart-one",
+      "id": "fc10f4fc",
+      "version": "08851ece",
+      "name": "Chart One",
+      "identitySource": "name"
+    }
+  }
+}

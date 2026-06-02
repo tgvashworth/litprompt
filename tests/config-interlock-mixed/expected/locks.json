@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "interlocks": {
+    "skills/alpha/SKILL.md": {
+      "slug": "alpha-skill",
+      "id": "63b6db06",
+      "version": "186627a9",
+      "name": "Alpha Skill",
+      "identitySource": "name"
+    }
+  }
+}

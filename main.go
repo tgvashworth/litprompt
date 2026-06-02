@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"regexp"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -15,6 +15,7 @@ import (
 	"github.com/tgvashworth/litprompt/internal/build"
 	"github.com/tgvashworth/litprompt/internal/config"
 	"github.com/tgvashworth/litprompt/internal/gitfetch"
+	"github.com/tgvashworth/litprompt/internal/interlock"
 	"github.com/tgvashworth/litprompt/internal/lockfile"
 	"github.com/tgvashworth/litprompt/internal/parse"
 )
@@ -30,6 +31,10 @@ var (
 	outputTo  string
 	matchGlob string
 	header    string
+
+	interlockMode     string
+	interlockParam    string
+	interlockManifest string
 )
 
 func main() {
@@ -99,6 +104,9 @@ Examples:
 	cmd.Flags().StringVarP(&outputTo, "output", "o", "", "output file or directory")
 	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
 	cmd.Flags().StringVar(&header, "header", "", "add a generated-file comment: 'short' or 'full'")
+	cmd.Flags().StringVar(&interlockMode, "interlock", "", "stamp an interlock line: 'analytics' or 'enforce'")
+	cmd.Flags().StringVar(&interlockParam, "interlock-param", "", "tool-parameter name in the interlock line (default \"interlock_tokens\")")
+	cmd.Flags().StringVar(&interlockManifest, "interlock-manifest", "", "path to write the interlock manifest (default \"interlocks.json\")")
 
 	return cmd
 }
@@ -274,7 +282,7 @@ func buildOpts() build.Options {
 	return opts
 }
 
-func runBuild(cmd *cobra.Command, args []string) error {
+func runBuild(cmd *cobra.Command, args []string) (err error) {
 	opts := buildOpts()
 
 	if len(args) == 0 {
@@ -309,6 +317,23 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	il, err := interlockOptsFromFlags()
+	if err != nil {
+		return err
+	}
+
+	// Write the manifest for whatever built successfully, even if a later file
+	// fails — mirroring the config path, which records successful builds before
+	// returning. A manifest-write failure surfaces only if the build itself did
+	// not already fail.
+	defer func() {
+		if len(il.manifest) > 0 {
+			if werr := writeManifest(il.settings.Manifest, il.manifest); werr != nil && err == nil {
+				err = werr
+			}
+		}
+	}()
+
 	for _, f := range files {
 		var outPath string
 		if outputTo != "" {
@@ -317,12 +342,52 @@ func runBuild(cmd *cobra.Command, args []string) error {
 				return err
 			}
 		}
-		if err := buildOne(f, outPath, header, opts); err != nil {
+		if err := buildOne(f, outPath, header, il, opts); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// interlockOptsFromFlags builds the interlock options for the args/stdin path
+// from the --interlock* flags, validating the mode and seeding a manifest
+// accumulator when interlock is active.
+func interlockOptsFromFlags() (interlockOpts, error) {
+	mode, err := normalizeInterlockMode(interlockMode)
+	if err != nil {
+		return interlockOpts{}, err
+	}
+	il := interlockOpts{
+		mode: mode,
+		settings: config.InterlockConfig{
+			Param:    orDefault(interlockParam, config.DefaultInterlockParam),
+			Manifest: orDefault(interlockManifest, config.DefaultInterlockManifest),
+		},
+	}
+	if mode != interlock.ModeOff {
+		il.manifest = map[string]interlock.ManifestEntry{}
+	}
+	return il, nil
+}
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+// normalizeInterlockMode validates a mode string and maps "" to "off".
+func normalizeInterlockMode(mode string) (string, error) {
+	switch mode {
+	case "", interlock.ModeOff:
+		return interlock.ModeOff, nil
+	case interlock.ModeAnalytics, interlock.ModeEnforce:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid interlock %q: must be \"off\", \"analytics\", or \"enforce\"", mode)
+	}
 }
 
 // runBuildFromConfig runs every build declared in litprompt.yaml, continuing
@@ -346,11 +411,23 @@ func runBuildFromConfig(opts build.Options) error {
 		return err
 	}
 
+	settings := cfg.InterlockSettings()
+	manifest := map[string]interlock.ManifestEntry{}
+
 	errCount := 0
 	for _, r := range items {
-		if err := buildOne(r.Source, r.Output, r.Header, opts); err != nil {
+		il := interlockOpts{mode: r.Interlock, settings: settings, manifest: manifest}
+		if err := buildOne(r.Source, r.Output, r.Header, il, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR %s: %s\n", r.Source, err)
 			errCount++
+		}
+	}
+
+	// Write the single aggregate manifest after the loop. Failed builds never
+	// recorded an entry, so it reflects only what actually built.
+	if len(manifest) > 0 {
+		if err := writeManifest(settings.Manifest, manifest); err != nil {
+			return err
 		}
 	}
 
@@ -363,9 +440,33 @@ func runBuildFromConfig(opts build.Options) error {
 	return nil
 }
 
+// interlockOpts carries the resolved interlock configuration into buildOne.
+type interlockOpts struct {
+	mode     string                             // "off" | "analytics" | "enforce"
+	settings config.InterlockConfig             // param/manifest/message, defaults applied
+	manifest map[string]interlock.ManifestEntry // accumulator keyed by output path; may be nil
+}
+
+// writeManifest renders and writes the aggregate interlock manifest.
+func writeManifest(path string, entries map[string]interlock.ManifestEntry) error {
+	data, err := interlock.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("marshaling interlock manifest: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating manifest directory: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing interlock manifest %s: %w", path, err)
+	}
+	return nil
+}
+
 // buildOne builds a single source file, optionally writing to outPath (empty
-// → stdout) and optionally prepending a header.
-func buildOne(srcPath, outPath, headerMode string, opts build.Options) error {
+// → stdout). When interlock is active it stamps an interlock line and records a
+// manifest entry; the optional header comment is added after that. The final
+// order after any frontmatter is: header → interlock → body.
+func buildOne(srcPath, outPath, headerMode string, il interlockOpts, opts build.Options) error {
 	slog.Info("building", "file", srcPath)
 
 	result, err := build.Build(srcPath, opts)
@@ -373,14 +474,19 @@ func buildOne(srcPath, outPath, headerMode string, opts build.Options) error {
 		return fmt.Errorf("building %s: %w", srcPath, err)
 	}
 
-	if headerMode != "" {
-		srcRel := srcPath
-		if cwd, err := os.Getwd(); err == nil {
-			if rel, err := filepath.Rel(cwd, srcPath); err == nil {
-				srcRel = rel
-			}
-		}
-		result = insertHeader(result, headerMode, srcRel)
+	interlockLine, entry, err := interlockFor(srcPath, result, il)
+	if err != nil {
+		return err
+	}
+	// Each insertion goes immediately after the frontmatter, so the line added
+	// last ends up on top. Insert the interlock line first, then the header, to
+	// land on the order frontmatter → header → interlock → body. (Swapping these
+	// two calls would invert that order, not preserve it.)
+	if interlockLine != "" {
+		result = insertAfterFrontmatter(result, interlockLine)
+	}
+	if comment := headerComment(headerMode, relPath(srcPath)); comment != "" {
+		result = insertAfterFrontmatter(result, comment)
 	}
 
 	if outPath == "" {
@@ -393,6 +499,11 @@ func buildOne(srcPath, outPath, headerMode string, opts build.Options) error {
 	}
 	if err := os.WriteFile(outPath, []byte(result), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", outPath, err)
+	}
+	// Record the manifest entry only after the output is durably written, keyed
+	// by output path, so a failed build never contributes an entry.
+	if entry != nil && il.manifest != nil {
+		il.manifest[outPath] = *entry
 	}
 	slog.Info("wrote", "file", outPath)
 	return nil
@@ -486,29 +597,80 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-var frontmatterRe = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n)`)
+// frontmatterRe matches a leading YAML frontmatter block. The trailing newline
+// after the closing --- is optional so a file whose frontmatter ends at EOF is
+// still detected (matching internal/build and internal/interlock).
+var frontmatterRe = regexp.MustCompile(`(?s)\A(---\n.*?\n---\n?)`)
 
-// insertHeader adds a generated-file HTML comment after any YAML frontmatter.
-// mode is "short" or "full". srcPath is the source file path for the template.
-func insertHeader(content string, mode string, srcPath string) string {
-	var comment string
+// interlockFor derives the interlock line and manifest entry for a build when
+// interlock is active. The version hash is computed from the built body with
+// frontmatter stripped, before any line is inserted, so it never hashes itself
+// and is stable regardless of header/interlock. A missing frontmatter identity
+// is a hard error. The caller records the returned entry only after a
+// successful write. Returns ("", nil, nil) when interlock is off.
+func interlockFor(srcPath, result string, il interlockOpts) (string, *interlock.ManifestEntry, error) {
+	if il.mode == "" || il.mode == interlock.ModeOff {
+		return "", nil, nil
+	}
+
+	src, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("reading %s: %w", srcPath, err)
+	}
+	id, err := interlock.DeriveIdentity(string(src))
+	if err != nil {
+		return "", nil, fmt.Errorf("cannot derive interlock identity for %s: %w", srcPath, err)
+	}
+
+	version := interlock.Version(build.StripFrontmatter(result))
+	entry := &interlock.ManifestEntry{
+		Slug:           id.Slug,
+		ID:             id.ID,
+		Version:        version,
+		Name:           id.Name,
+		IdentitySource: id.IdentitySource,
+	}
+	return interlock.Line(id.Token(version), il.settings.Param, il.mode, il.settings.Message), entry, nil
+}
+
+// relPath returns srcPath relative to the working directory when possible.
+func relPath(srcPath string) string {
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, srcPath); err == nil {
+			return rel
+		}
+	}
+	return srcPath
+}
+
+// headerComment returns the generated-file HTML comment for mode, or "" when
+// no header is requested. mode is "short" or "full".
+func headerComment(mode, srcPath string) string {
 	switch mode {
 	case "short":
-		comment = fmt.Sprintf("<!-- litprompt %s -->", srcPath)
+		return fmt.Sprintf("<!-- litprompt %s -->", srcPath)
 	case "full":
-		comment = fmt.Sprintf("<!-- Generated by litprompt from %s. Do not edit. -->", srcPath)
-	default:
-		return content
+		return fmt.Sprintf("<!-- Generated by litprompt from %s. Do not edit. -->", srcPath)
 	}
+	return ""
+}
 
+// insertAfterFrontmatter inserts line after any YAML frontmatter block, or
+// prepends it when the content has none.
+func insertAfterFrontmatter(content, line string) string {
 	if loc := frontmatterRe.FindStringIndex(content); loc != nil {
-		// Insert after frontmatter.
-		return content[:loc[1]] + "\n" + comment + "\n" + content[loc[1]:]
+		return content[:loc[1]] + "\n" + line + "\n" + content[loc[1]:]
 	}
-
-	// No frontmatter — prepend.
 	if content == "" {
-		return comment + "\n"
+		return line + "\n"
 	}
-	return comment + "\n\n" + content
+	return line + "\n\n" + content
+}
+
+// insertHeader adds a generated-file HTML comment after any YAML frontmatter.
+func insertHeader(content, mode, srcPath string) string {
+	if comment := headerComment(mode, srcPath); comment != "" {
+		return insertAfterFrontmatter(content, comment)
+	}
+	return content
 }

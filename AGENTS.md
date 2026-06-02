@@ -29,6 +29,8 @@ internal/parse/parse.go   Comment stripping (regex) and import finding. No I/O.
 internal/gitfetch/        Parses GitHub/GitLab/Bitbucket URLs, fetches files via git CLI
                           with HTTPS→SSH fallback. Used by the lock command.
 internal/lockfile/        Parses and writes litprompt.lock, verifies SHA-256 content hashes.
+internal/interlock/       Derives skill-tool interlock tokens (slug:id:version) and the
+                          aggregate manifest from source frontmatter + built body. Pure, no I/O.
 integration/              Ginkgo test suite. Auto-discovers fixture dirs from tests/.
 tests/*/                  46 fixture-based test cases.
 ```

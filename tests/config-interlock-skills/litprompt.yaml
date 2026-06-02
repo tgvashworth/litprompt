@@ -1,0 +1,6 @@
+interlock:
+  manifest: interlocks.json
+builds:
+  - source: plugins/*/skills/*/SKILL.src.md
+    output: SKILL.md
+    interlock: enforce

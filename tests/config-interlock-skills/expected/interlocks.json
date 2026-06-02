@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "interlocks": {
+    "plugins/data/skills/chart/SKILL.md": {
+      "slug": "chart-builder",
+      "id": "db13d3df",
+      "version": "fed100da",
+      "name": "Chart Builder",
+      "identitySource": "name"
+    },
+    "plugins/data/skills/query/SKILL.md": {
+      "slug": "query-runner",
+      "id": "416c66c1",
+      "version": "eb715297",
+      "name": "Query Runner",
+      "identitySource": "name"
+    }
+  }
+}

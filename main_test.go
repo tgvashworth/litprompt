@@ -63,6 +63,38 @@ func TestInsertHeader_emptyContent(t *testing.T) {
 	}
 }
 
+func TestInsertAfterFrontmatter(t *testing.T) {
+	cases := []struct{ name, content, want string }{
+		{
+			name:    "frontmatter with trailing newline",
+			content: "---\nname: X\n---\nbody\n",
+			want:    "---\nname: X\n---\n\nLINE\nbody\n",
+		},
+		{
+			// Regression: frontmatter ending at EOF without a final newline must
+			// still be detected, so the line lands after it (not prepended above).
+			name:    "frontmatter at EOF, no trailing newline",
+			content: "---\nname: X\n---",
+			want:    "---\nname: X\n---\nLINE\n",
+		},
+		{
+			name:    "no frontmatter",
+			content: "# body\n",
+			want:    "LINE\n\n# body\n",
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    "LINE\n",
+		},
+	}
+	for _, c := range cases {
+		if got := insertAfterFrontmatter(c.content, "LINE"); got != c.want {
+			t.Errorf("%s:\ngot:  %q\nwant: %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestInsertHeader_noMode(t *testing.T) {
 	input := "# Hello\n"
 	got := insertHeader(input, "", "src/prompt.md")
