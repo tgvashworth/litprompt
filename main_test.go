@@ -335,3 +335,34 @@ func TestRunBuild_configFlagWithSourceArg_errors(t *testing.T) {
 		t.Errorf("error should mention --config: %v", err)
 	}
 }
+
+func TestRunBuildFromConfig_restoresCwd(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	// A config in a subdirectory triggers an internal chdir; the process cwd
+	// must be back where it started once the build returns.
+	writeTestFile(t, "envs/agent.md", "# agent\n")
+	writeTestFile(t, "envs/litprompt.prod.yaml", `builds:
+  - source: agent.md
+    output: dist/agent.md
+`)
+
+	configPath = "envs/litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	before, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := runBuildFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if before != after {
+		t.Errorf("working directory not restored: before %q, after %q", before, after)
+	}
+}

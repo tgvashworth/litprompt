@@ -411,6 +411,7 @@ func runBuildFromConfig(opts build.Options) error {
 	}
 
 	var cfg *config.Config
+	baseDir := cwd
 
 	if configPath != "" {
 		// Resolve the config to an absolute path before any chdir, then run as
@@ -423,16 +424,21 @@ func runBuildFromConfig(opts build.Options) error {
 		}
 		cfg, err = config.LoadFile(abs)
 		if err != nil {
-			return err
+			// Report the path the user typed, not the resolved absolute path.
+			return fmt.Errorf("loading config %s: %w", configPath, err)
 		}
+		// chdir into the config's directory so downstream cwd-relative resolution
+		// matches it. `cwd` is left untouched as the original directory, so the
+		// deferred restore returns the process to where it started; `baseDir`
+		// (not cwd) drives source/output/lockfile resolution below.
 		if dir := filepath.Dir(abs); dir != cwd {
 			if cerr := os.Chdir(dir); cerr != nil {
 				return fmt.Errorf("entering config directory %s: %w", dir, cerr)
 			}
 			defer func() { _ = os.Chdir(cwd) }()
-			cwd = dir
+			baseDir = dir
 		}
-		opts.LockfilePath = filepath.Join(cwd, "litprompt.lock")
+		opts.LockfilePath = filepath.Join(baseDir, "litprompt.lock")
 	} else {
 		cfg, err = config.Load(cwd)
 		if err != nil {
@@ -443,7 +449,7 @@ func runBuildFromConfig(opts build.Options) error {
 		}
 	}
 
-	items, err := cfg.Resolve(cwd)
+	items, err := cfg.Resolve(baseDir)
 	if err != nil {
 		return err
 	}
