@@ -79,16 +79,19 @@ func Load(dir string) (*Config, error) {
 		return nil, fmt.Errorf("ambiguous config: both litprompt.yaml and litprompt.yml exist in %s", dir)
 	}
 
-	var path string
 	switch {
 	case yamlExists:
-		path = yamlPath
+		return LoadFile(yamlPath)
 	case ymlExists:
-		path = ymlPath
+		return LoadFile(ymlPath)
 	default:
 		return nil, nil
 	}
+}
 
+// LoadFile reads and validates a config from an explicit path. Unlike Load,
+// a missing file is an error — the caller named the path deliberately.
+func LoadFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)

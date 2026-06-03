@@ -70,6 +70,7 @@ go install github.com/tgvashworth/litprompt@latest
 
 ```sh
 litprompt build                                    # build everything in litprompt.yaml
+litprompt build --config litprompt.prod.yaml       # build everything in a named config
 litprompt build prompt.md                          # build one file, print to stdout
 litprompt build prompt.md -o out.md                # write to a file
 litprompt build prompts/ -o out/                   # build all .md files recursively
@@ -109,6 +110,17 @@ Each entry has a `source` and an `output`. `header` is optional (`short` or `ful
 Globs use `**` for recursive matching. A glob source **must** pair with a bare-filename output — that keeps output paths predictable (one match → one sibling). Use directory mode if you want tree-mirroring.
 
 Failed builds are reported but don't stop the others; `litprompt build` exits non-zero if any failed. CLI flags (`-o`, `--header`, `--match`) are ignored when reading config.
+
+### Multiple configs (e.g. prod vs staging)
+
+Pass `--config <path>` to build a named config instead of discovering `litprompt.yaml` in the cwd. Sources, outputs, and the lockfile resolve relative to the config file's directory, so `--config envs/prod.yaml` behaves exactly like `cd envs && litprompt build` pointed at that file:
+
+```sh
+litprompt build --config litprompt.staging.yaml
+litprompt build --config litprompt.prod.yaml
+```
+
+Keep one source tree and give each environment a config that differs only in its `output:` paths (e.g. `dist/staging/…` vs `dist/prod/…`), so the two builds don't clobber each other. A `prod` vs `staging` pipeline is then two commands — wire them up as `make`/`just` targets or CI jobs. `--config` cannot be combined with a source argument (that's single-file mode); a missing named config is a hard error.
 
 ## Interlocks
 
