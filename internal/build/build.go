@@ -124,7 +124,7 @@ func BuildString(content string, baseDir string, opts Options) (string, error) {
 func finalize(flattened string, opts Options) (string, error) {
 	substituted, missing, miscased := SubstituteVars(flattened, opts.Vars)
 	if len(miscased) > 0 {
-		return "", fmt.Errorf("variable name must be UPPER_CASE: %s (did you mean an UPPER_CASE variable name? e.g. #%s)",
+		return "", fmt.Errorf("variable name must be UPPER_SNAKE_CASE: %s (did you mean an UPPER_SNAKE_CASE variable name? e.g. #%s)",
 			strings.Join(miscased, ", "), strings.ToUpper(miscased[0]))
 	}
 	if len(missing) > 0 {

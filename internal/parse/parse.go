@@ -20,40 +20,29 @@ func (i Import) IsRemote() bool {
 	return strings.HasPrefix(i.Target, "https://") || strings.HasPrefix(i.Target, "http://")
 }
 
-// Var represents a variable directive [{{placeholder}}](#NAME) found in the source.
-type Var struct {
-	Line        int
-	Placeholder string
-	Name        string
-}
-
 var (
 	// commentPattern matches <!-- @ ... --> blocks (possibly multi-line),
 	// including the trailing newline if present (the comment's own line ending).
 	commentPattern = regexp.MustCompile(`(?s)<!-- @.*?-->\n?`)
 
 	// importLinePattern matches @[label](target) at the start of a line,
-	// with optional leading whitespace. A target matching the variable name
-	// shape (#UPPER_SNAKE) is rejected by MatchImportLine.
+	// with optional leading whitespace.
 	importLinePattern = regexp.MustCompile(`^\s*@\[([^\]]+)\]\(([^)]+)\)$`)
 
-	// VarNameTargetPattern matches a variable-directive target: #UPPER_SNAKE.
-	VarNameTargetPattern = regexp.MustCompile(`^#[A-Z_][A-Z0-9_]*$`)
-
-	// varDirectivePattern matches [{{placeholder}}](#NAME) anywhere on a line.
+	// varDirectivePattern matches a variable directive [{{placeholder}}](#NAME)
+	// anywhere on a line. Used to keep inline directives from being flagged as
+	// suspected imports. Variables are otherwise handled by the substitute pass,
+	// not here — they carry no leading @ and so never match importLinePattern.
 	varDirectivePattern = regexp.MustCompile(`\[\{\{([^}]*)\}\}\]\(#([A-Z_][A-Z0-9_]*)\)`)
 )
 
 // MatchImportLine returns the label and target if line is a valid import line.
-// Returns ok=false if the line doesn't match the @[label](target) shape OR if
-// the target matches the variable name shape (#UPPER_SNAKE) — variable
-// directives are not imports.
+// Returns ok=false if the line doesn't match the @[label](target) shape. The
+// new variable syntax ([{{...}}](#NAME)) has no leading @, so it can never be
+// mistaken for an import — no special-casing is needed here.
 func MatchImportLine(line string) (label, target string, ok bool) {
 	m := importLinePattern.FindStringSubmatch(line)
 	if m == nil {
-		return "", "", false
-	}
-	if VarNameTargetPattern.MatchString(m[2]) {
 		return "", "", false
 	}
 	return m[1], m[2], true
@@ -83,7 +72,7 @@ func StripComments(content string) string {
 
 // FindImports returns all @[label](target) directives found in content.
 // Only matches lines where the directive is at the start (with optional
-// leading whitespace) and the target is not a variable name.
+// leading whitespace).
 func FindImports(content string) []Import {
 	var imports []Import
 
@@ -101,19 +90,6 @@ func FindImports(content string) []Import {
 	}
 
 	return imports
-}
-
-// FindVars returns all [{{placeholder}}](#NAME) variable directives in content.
-// Variable directives may appear anywhere on a line (unlike imports).
-func FindVars(content string) []Var {
-	var vars []Var
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		for _, m := range varDirectivePattern.FindAllStringSubmatch(line, -1) {
-			vars = append(vars, Var{Line: i, Placeholder: m[1], Name: m[2]})
-		}
-	}
-	return vars
 }
 
 // suspectedImportPattern matches lines that start with @[...](...) but have

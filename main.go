@@ -127,8 +127,8 @@ func checkCmd() *cobra.Command {
 		Short: "Validate imports resolve, lockfile is current, no cycles",
 		Long: `Check validates markdown files without producing output.
 It verifies that all imports resolve, the lockfile is current for remote
-imports, all variable directives resolve against --vars (if supplied),
-and there are no circular dependencies.`,
+imports, every variable directive resolves against --vars (a directive with
+no supplied value is an error), and there are no circular dependencies.`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

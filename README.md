@@ -159,7 +159,7 @@ For the other half — what to implement in the tool that reads the token and lo
 
 ## Syntax
 
-Three features, all using `@` applied to standard markdown constructs.
+Three features, each layered onto a standard markdown construct. Comments and imports use `@`; variables are an ordinary link whose text is wrapped in `{{ }}`.
 
 ### Comments
 

@@ -6,11 +6,12 @@ import (
 	"strings"
 )
 
-// varDirectivePattern matches [{{placeholder}}](#NAME). The name group is
-// matched loosely (any case) so a misspelled lowercase name can be detected
-// and reported, rather than silently passing through unsubstituted.
-// Mirrors parse.varDirectivePattern but kept package-local here to avoid an
-// import cycle when the substitute pass is called from this package.
+// varDirectivePattern matches [{{placeholder}}](#NAME). Unlike
+// parse.varDirectivePattern (which is strict UPPER_SNAKE), the name group here
+// is intentionally loose (any case) so a misspelled lowercase name can be
+// detected and reported rather than silently passing through unsubstituted;
+// substituteOnLine then classifies each match via upperSnakePattern. Kept
+// package-local to avoid an import cycle on the parse package.
 var varDirectivePattern = regexp.MustCompile(`\[\{\{([^}]*)\}\}\]\(#([A-Za-z_][A-Za-z0-9_]*)\)`)
 
 // upperSnakePattern reports whether a variable name has the required

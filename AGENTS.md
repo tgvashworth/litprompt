@@ -31,8 +31,8 @@ internal/build/substitute.go  Variable substitution. Walks the flattened output 
 internal/config/              Parses litprompt.yaml (Load discovers in a dir; LoadFile reads an
                               explicit path) and resolves each entry into concrete
                               (source, output) pairs. Handles file/dir/glob source shapes.
-internal/parse/parse.go       Comment stripping, import finding, and variable directive
-                              finding. No I/O.
+internal/parse/parse.go       Comment stripping and import finding (variable directives,
+                              [{{...}}](#NAME), are handled by the substitute pass). No I/O.
 internal/gitfetch/            Parses GitHub/GitLab/Bitbucket URLs, fetches files via git CLI
                               with HTTPS→SSH fallback. Used by the lock command.
 internal/lockfile/            Parses and writes litprompt.lock, verifies SHA-256 content hashes.
