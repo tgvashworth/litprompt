@@ -274,3 +274,95 @@ func TestRunBuildFromConfig_mixedShapes(t *testing.T) {
 		}
 	}
 }
+
+func TestRunBuildFromConfig_explicitConfigInOtherDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	// Config and source live in envs/, not the cwd. Paths in the config are
+	// relative to the config's directory, so the output should land there too.
+	writeTestFile(t, "envs/agent.md", "# agent\n")
+	writeTestFile(t, "envs/litprompt.prod.yaml", `builds:
+  - source: agent.md
+    output: dist/agent.md
+`)
+
+	configPath = "envs/litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	if err := runBuildFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Output resolves relative to the config dir (envs/), not the cwd.
+	if got := mustRead(t, filepath.Join(dir, "envs/dist/agent.md")); !strings.Contains(got, "# agent") {
+		t.Errorf("envs/dist/agent.md missing content: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dist/agent.md")); err == nil {
+		t.Error("output should not be written relative to cwd")
+	}
+}
+
+func TestRunBuildFromConfig_explicitConfigMissing_errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	configPath = "litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	err := runBuildFromConfig(build.Options{})
+	if err == nil {
+		t.Fatal("expected error for missing named config, got nil")
+	}
+	if !strings.Contains(err.Error(), "litprompt.prod.yaml") {
+		t.Errorf("error should name the missing config: %v", err)
+	}
+}
+
+func TestRunBuild_configFlagWithSourceArg_errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeTestFile(t, "prompt.md", "# hi\n")
+
+	configPath = "litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	err := runBuild(nil, []string{"prompt.md"})
+	if err == nil {
+		t.Fatal("expected error combining --config with a source argument, got nil")
+	}
+	if !strings.Contains(err.Error(), "--config") {
+		t.Errorf("error should mention --config: %v", err)
+	}
+}
+
+func TestRunBuildFromConfig_restoresCwd(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	// A config in a subdirectory triggers an internal chdir; the process cwd
+	// must be back where it started once the build returns.
+	writeTestFile(t, "envs/agent.md", "# agent\n")
+	writeTestFile(t, "envs/litprompt.prod.yaml", `builds:
+  - source: agent.md
+    output: dist/agent.md
+`)
+
+	configPath = "envs/litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	before, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := runBuildFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if before != after {
+		t.Errorf("working directory not restored: before %q, after %q", before, after)
+	}
+}

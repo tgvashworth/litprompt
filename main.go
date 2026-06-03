@@ -24,13 +24,14 @@ import (
 var version = "dev"
 
 var (
-	verbose   bool
-	debug     bool
-	quiet     bool
-	mockDir   string
-	outputTo  string
-	matchGlob string
-	header    string
+	verbose    bool
+	debug      bool
+	quiet      bool
+	mockDir    string
+	outputTo   string
+	matchGlob  string
+	header     string
+	configPath string
 
 	interlockMode     string
 	interlockParam    string
@@ -89,13 +90,16 @@ and resolving imports. Output goes to stdout by default.
 
 With no argument, reads litprompt.yaml (or .yml) from the current directory
 and builds every entry in it. CLI flags (-o, --header, --match) are ignored
-in that mode — per-build settings come from the config.
+in that mode — per-build settings come from the config. --config <path> selects
+an explicit config file (e.g. for separate prod/staging builds) instead of
+discovering one in the current directory.
 
 Examples:
-  litprompt build                      # build everything in litprompt.yaml
-  litprompt build prompt.md            # build one file, print to stdout
-  litprompt build prompt.md -o out.md  # build one file to a specific output
-  litprompt build prompts/ -o out/     # build all .md files in directory`,
+  litprompt build                              # build everything in litprompt.yaml
+  litprompt build --config litprompt.prod.yaml # build everything in a named config
+  litprompt build prompt.md                    # build one file, print to stdout
+  litprompt build prompt.md -o out.md          # build one file to a specific output
+  litprompt build prompts/ -o out/             # build all .md files in directory`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE:         runBuild,
@@ -107,6 +111,7 @@ Examples:
 	cmd.Flags().StringVar(&interlockMode, "interlock", "", "stamp an interlock line: 'analytics' or 'enforce'")
 	cmd.Flags().StringVar(&interlockParam, "interlock-param", "", "tool-parameter name in the interlock line (default \"interlock_tokens\")")
 	cmd.Flags().StringVar(&interlockManifest, "interlock-manifest", "", "path to write the interlock manifest (default \"interlocks.json\")")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to a litprompt.yaml config (default: discover in cwd); cannot be combined with a source argument")
 
 	return cmd
 }
@@ -289,6 +294,10 @@ func runBuild(cmd *cobra.Command, args []string) (err error) {
 		return runBuildFromConfig(opts)
 	}
 
+	if configPath != "" {
+		return fmt.Errorf("--config applies only to config-driven builds; remove the source argument or the --config flag")
+	}
+
 	input := args[0]
 
 	// Handle stdin
@@ -390,23 +399,57 @@ func normalizeInterlockMode(mode string) (string, error) {
 	}
 }
 
-// runBuildFromConfig runs every build declared in litprompt.yaml, continuing
-// on errors and returning a non-nil error if any failed.
+// runBuildFromConfig runs every build declared in a litprompt.yaml config,
+// continuing on errors and returning a non-nil error if any failed. When
+// configPath is set, that explicit file is used and sources, outputs, and the
+// lockfile resolve relative to its directory; otherwise the config is
+// discovered in the current working directory.
 func runBuildFromConfig(opts build.Options) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	cfg, err := config.Load(cwd)
-	if err != nil {
-		return err
-	}
-	if cfg == nil {
-		return fmt.Errorf("no source given and no litprompt.yaml in %s", cwd)
+	var cfg *config.Config
+	baseDir := cwd
+
+	if configPath != "" {
+		// Resolve the config to an absolute path before any chdir, then run as
+		// if invoked from its directory: sources, outputs, and the lockfile are
+		// all cwd-relative downstream, so `--config sub/x.yaml` behaves exactly
+		// like `cd sub && litprompt build` pointed at that file.
+		abs, aerr := filepath.Abs(configPath)
+		if aerr != nil {
+			return fmt.Errorf("resolving config path: %w", aerr)
+		}
+		cfg, err = config.LoadFile(abs)
+		if err != nil {
+			// Report the path the user typed, not the resolved absolute path.
+			return fmt.Errorf("loading config %s: %w", configPath, err)
+		}
+		// chdir into the config's directory so downstream cwd-relative resolution
+		// matches it. `cwd` is left untouched as the original directory, so the
+		// deferred restore returns the process to where it started; `baseDir`
+		// (not cwd) drives source/output/lockfile resolution below.
+		if dir := filepath.Dir(abs); dir != cwd {
+			if cerr := os.Chdir(dir); cerr != nil {
+				return fmt.Errorf("entering config directory %s: %w", dir, cerr)
+			}
+			defer func() { _ = os.Chdir(cwd) }()
+			baseDir = dir
+		}
+		opts.LockfilePath = filepath.Join(baseDir, "litprompt.lock")
+	} else {
+		cfg, err = config.Load(cwd)
+		if err != nil {
+			return err
+		}
+		if cfg == nil {
+			return fmt.Errorf("no source given and no litprompt.yaml in %s", cwd)
+		}
 	}
 
-	items, err := cfg.Resolve(cwd)
+	items, err := cfg.Resolve(baseDir)
 	if err != nil {
 		return err
 	}

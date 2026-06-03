@@ -106,6 +106,26 @@ func TestLoad_errorsOnEmptyBuilds(t *testing.T) {
 	}
 }
 
+func TestLoadFile_readsExplicitPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "litprompt.prod.yaml")
+	writeFile(t, path, "builds:\n  - source: a.md\n    output: b.md\n")
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg == nil || len(cfg.Builds) != 1 || cfg.Builds[0].Source != "a.md" {
+		t.Fatalf("unexpected config: %#v", cfg)
+	}
+}
+
+func TestLoadFile_missingFile_errors(t *testing.T) {
+	_, err := LoadFile(filepath.Join(t.TempDir(), "nope.yaml"))
+	if err == nil {
+		t.Fatal("expected error for missing config file, got nil")
+	}
+}
+
 // --- Resolve: single file ---
 
 func TestResolve_singleFile_pathOutput(t *testing.T) {
