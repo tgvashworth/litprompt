@@ -6,7 +6,7 @@ or enforces it. That half is yours. This guide shows what to build, using an
 MCP server as the example.
 
 If you haven't set up the litprompt side yet, read the **Interlocks** section of
-the [README](../README.md) first. This doc picks up from the artifacts that
+the [Interlocks section of the Introduction](../README.md#interlocks) first. This doc picks up from the artifacts that
 `litprompt build` produces.
 
 ## What you're working with

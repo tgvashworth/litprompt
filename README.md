@@ -168,7 +168,7 @@ The single `manifest` is keyed by output path and lists every stamped skill — 
 
 The args path has matching flags for one-off builds: `--interlock`, `--interlock-param`, `--interlock-manifest` (ignored when reading config). A build that writes to stdout (no `-o`) still stamps the interlock line but emits no manifest — the manifest is keyed by output path, so it's only written for file outputs.
 
-For the other half — what to implement in the tool that reads the token and logs or enforces it — see [docs/interlock-consumer.md](docs/interlock-consumer.md).
+For the other half — what to implement in the tool that reads the token and logs or enforces it — see [docs/guides/interlock-consumer.md](docs/guides/interlock-consumer.md).
 
 ## Syntax
 
