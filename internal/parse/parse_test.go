@@ -79,6 +79,28 @@ func TestFindImports_not_at_line_start(t *testing.T) {
 	}
 }
 
+func TestMatchImportLine_anchorTargetIsImport(t *testing.T) {
+	// A full-line @[...](#NAME) is an import with an anchor-like target, not a
+	// variable (variables are [{{...}}](#NAME), with no leading @). It must be
+	// matched as an import so a missing target errors loudly rather than the
+	// line silently passing through as text.
+	label, target, ok := MatchImportLine("@[x](#BOT_ID)")
+	if !ok {
+		t.Fatal("expected @[x](#BOT_ID) to match as an import line")
+	}
+	if label != "x" || target != "#BOT_ID" {
+		t.Errorf("unexpected label/target: %q / %q", label, target)
+	}
+}
+
+func TestFindImports_anchorTarget(t *testing.T) {
+	input := "@[x](#BOT_ID)\n"
+	imports := FindImports(input)
+	if len(imports) != 1 || imports[0].Target != "#BOT_ID" {
+		t.Fatalf("expected 1 import with target #BOT_ID, got %+v", imports)
+	}
+}
+
 func TestFindImports_remote(t *testing.T) {
 	input := "@[helper](https://github.com/org/repo/blob/abc/file.md)\n"
 	imports := FindImports(input)

@@ -25,6 +25,11 @@ type Options struct {
 	// CacheDir is the directory for cached remote content (by hash).
 	// Defaults to ~/.cache/litprompt/ if empty.
 	CacheDir string
+
+	// Vars holds the merged variable values from --vars files. nil means
+	// no --vars was supplied; in that case any variable directive in the
+	// source is reported as unresolved.
+	Vars map[string]string
 }
 
 // importChain tracks the current import path for circular detection.
@@ -78,7 +83,11 @@ func Build(inputPath string, opts Options) (string, error) {
 	lf, _ := lockfile.Load(lockPath)
 
 	chain := newChain()
-	return buildFile(absPath, opts, lf, chain, true)
+	flattened, err := buildFile(absPath, opts, lf, chain, true)
+	if err != nil {
+		return "", err
+	}
+	return finalize(flattened, opts)
 }
 
 // BuildString processes markdown content from a string (e.g. stdin).
@@ -107,7 +116,22 @@ func BuildString(content string, baseDir string, opts Options) (string, error) {
 		return "", err
 	}
 
-	return result, nil
+	return finalize(result, opts)
+}
+
+// finalize runs variable substitution on the flattened build output and
+// returns an error for any misnamed or unresolved variable directives.
+func finalize(flattened string, opts Options) (string, error) {
+	substituted, missing, miscased := SubstituteVars(flattened, opts.Vars)
+	if len(miscased) > 0 {
+		return "", fmt.Errorf("variable name must be UPPER_SNAKE_CASE: %s (did you mean an UPPER_SNAKE_CASE variable name? e.g. #%s)",
+			strings.Join(miscased, ", "), strings.ToUpper(miscased[0]))
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("unresolved variables: %s (supply values via --vars)",
+			strings.Join(missing, ", "))
+	}
+	return substituted, nil
 }
 
 func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *importChain, isRoot bool) (string, error) {
@@ -138,21 +162,18 @@ func buildFile(absPath string, opts Options, lf *lockfile.Lockfile, chain *impor
 	return content, nil
 }
 
-var importLinePattern = regexp.MustCompile(`^\s*@\[([^\]]+)\]\(([^)]+)\)$`)
-
 func resolveImports(content string, fromPath string, opts Options, lf *lockfile.Lockfile, chain *importChain) (string, error) {
 	fromDir := filepath.Dir(fromPath)
 	lines := strings.Split(content, "\n")
 
 	var result []string
 	for _, line := range lines {
-		matches := importLinePattern.FindStringSubmatch(line)
-		if matches == nil {
+		_, target, ok := parse.MatchImportLine(line)
+		if !ok {
 			result = append(result, line)
 			continue
 		}
 
-		target := matches[2]
 		imported, err := resolveImport(target, fromDir, opts, lf, chain)
 		if err != nil {
 			return "", err

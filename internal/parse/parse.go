@@ -25,10 +25,28 @@ var (
 	// including the trailing newline if present (the comment's own line ending).
 	commentPattern = regexp.MustCompile(`(?s)<!-- @.*?-->\n?`)
 
-	// importPattern matches @[label](target) at the start of a line,
+	// importLinePattern matches @[label](target) at the start of a line,
 	// with optional leading whitespace.
-	importPattern = regexp.MustCompile(`(?m)^\s*@\[([^\]]+)\]\(([^)]+)\)$`)
+	importLinePattern = regexp.MustCompile(`^\s*@\[([^\]]+)\]\(([^)]+)\)$`)
+
+	// varDirectivePattern matches a variable directive [{{placeholder}}](#NAME)
+	// anywhere on a line. Used to keep inline directives from being flagged as
+	// suspected imports. Variables are otherwise handled by the substitute pass,
+	// not here — they carry no leading @ and so never match importLinePattern.
+	varDirectivePattern = regexp.MustCompile(`\[\{\{([^}]*)\}\}\]\(#([A-Z_][A-Z0-9_]*)\)`)
 )
+
+// MatchImportLine returns the label and target if line is a valid import line.
+// Returns ok=false if the line doesn't match the @[label](target) shape. The
+// new variable syntax ([{{...}}](#NAME)) has no leading @, so it can never be
+// mistaken for an import — no special-casing is needed here.
+func MatchImportLine(line string) (label, target string, ok bool) {
+	m := importLinePattern.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
 
 // StripComments removes all <!-- @ ... --> comment blocks from content,
 // then collapses any resulting runs of multiple blank lines to at most one,
@@ -60,14 +78,15 @@ func FindImports(content string) []Import {
 
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		matches := importPattern.FindStringSubmatch(line)
-		if matches != nil {
-			imports = append(imports, Import{
-				Line:   i,
-				Label:  matches[1],
-				Target: matches[2],
-			})
+		label, target, ok := MatchImportLine(line)
+		if !ok {
+			continue
 		}
+		imports = append(imports, Import{
+			Line:   i,
+			Label:  label,
+			Target: target,
+		})
 	}
 
 	return imports
@@ -85,6 +104,8 @@ type SuspectedImport struct {
 
 // FindSuspectedImports returns lines that look like imports but have trailing
 // content (e.g. `@[label](path).`). These are likely typos.
+// Lines that contain a valid variable directive (e.g. `text [{{U}}](#NAME) more`)
+// are not flagged — those are inline variable substitutions, not malformed imports.
 func FindSuspectedImports(content string) []SuspectedImport {
 	var suspected []SuspectedImport
 	validImports := map[int]bool{}
@@ -95,6 +116,9 @@ func FindSuspectedImports(content string) []SuspectedImport {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if validImports[i] {
+			continue
+		}
+		if varDirectivePattern.MatchString(line) {
 			continue
 		}
 		if suspectedImportPattern.MatchString(line) {
