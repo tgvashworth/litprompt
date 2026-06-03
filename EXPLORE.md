@@ -72,7 +72,8 @@ litprompt build <dir/>                           # build all .md files recursive
 litprompt build <dir/> --match '**/prompt.md'    # filter which files to build
 litprompt build <dir/> --header full             # add generated-file comment
 litprompt lock <file.md|dir/>                    # fetch remote imports via git, write litprompt.lock
-litprompt check <file.md|dir/>                   # validate imports resolve, lockfile is current, no cycles
+litprompt check [file.md|dir/]                   # validate imports resolve, lockfile is current, no cycles
+litprompt check                                  # validate every source in litprompt.yaml (or --config <path>)
 ```
 
 The lockfile (`litprompt.lock`) is discovered from the current working directory. Remote imports are fetched via git (HTTPS with SSH fallback) and cached in `~/.cache/litprompt/`.

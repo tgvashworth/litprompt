@@ -123,63 +123,133 @@ Examples:
 
 func checkCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "check <file.md|dir/>",
+		Use:   "check [file.md|dir/]",
 		Short: "Validate imports resolve, lockfile is current, no cycles",
 		Long: `Check validates markdown files without producing output.
 It verifies that all imports resolve, the lockfile is current for remote
 imports, every variable directive resolves against --vars (a directive with
-no supplied value is an error), and there are no circular dependencies.`,
-		Args:         cobra.ExactArgs(1),
+no supplied value is an error), and there are no circular dependencies.
+
+With no argument, reads litprompt.yaml (or .yml) from the current directory
+and checks every source in it — the validate-only counterpart to a config
+build, so you can ask "will this environment build?" without writing output.
+--config <path> selects an explicit config file instead of discovering one in
+the current directory. CLI flags (--match) are ignored in config mode — the
+source set comes from the config.
+
+Examples:
+  litprompt check                              # check every source in litprompt.yaml
+  litprompt check --config litprompt.prod.yaml # check every source in a named config
+  litprompt check prompt.md                    # check one file
+  litprompt check prompts/                     # check all .md files in a directory`,
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			files, err := resolveInputFiles(args[0])
-			if err != nil {
-				return err
-			}
-
-			opts, err := buildOpts()
-			if err != nil {
-				return err
-			}
-			errCount := 0
-			warnCount := 0
-			for _, f := range files {
-				slog.Info("checking", "file", f)
-				_, err := build.Build(f, opts)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "ERROR %s: %s\n", f, err)
-					errCount++
-				} else {
-					slog.Info("ok", "file", f)
-				}
-
-				// Warn about suspected imports (lines that look like imports but have trailing content).
-				data, readErr := os.ReadFile(f)
-				if readErr == nil {
-					for _, s := range parse.FindSuspectedImports(string(data)) {
-						fmt.Fprintf(os.Stderr, "WARN %s:%d: possible malformed import (trailing content): %s\n", f, s.Line+1, strings.TrimSpace(s.Content))
-						warnCount++
-					}
-				}
-			}
-
-			if errCount > 0 {
-				return fmt.Errorf("%d file(s) failed validation", errCount)
-			}
-
-			msg := fmt.Sprintf("ok: %d file(s) checked", len(files))
-			if warnCount > 0 {
-				msg += fmt.Sprintf(", %d warning(s)", warnCount)
-			}
-			fmt.Fprintf(os.Stderr, "%s\n", msg)
-			return nil
-		},
+		RunE:         runCheck,
 	}
 
 	cmd.Flags().StringVar(&matchGlob, "match", "", "glob pattern to filter files (e.g. '**/prompt.md')")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to a litprompt.yaml config (default: discover in cwd); cannot be combined with a source argument")
 	cmd.Flags().StringSliceVar(&varsFiles, "vars", nil, ".env-format file of variable values (repeatable; later files override earlier on key collision)")
 
 	return cmd
+}
+
+// runCheck validates sources without producing output. With no argument it
+// checks every source declared in a litprompt.yaml config (honoring --config),
+// mirroring the config build path including its directory semantics; otherwise
+// it checks the file or directory named on the command line.
+func runCheck(cmd *cobra.Command, args []string) error {
+	opts, err := buildOpts()
+	if err != nil {
+		return err
+	}
+
+	if len(args) == 0 {
+		return runCheckFromConfig(opts)
+	}
+
+	if configPath != "" {
+		return fmt.Errorf("--config applies only to config-driven checks; remove the source argument or the --config flag")
+	}
+
+	files, err := resolveInputFiles(args[0])
+	if err != nil {
+		return err
+	}
+
+	errCount, warnCount := checkFiles(files, opts)
+	if errCount > 0 {
+		return fmt.Errorf("%d file(s) failed validation", errCount)
+	}
+	reportCheckOK(len(files), warnCount)
+	return nil
+}
+
+// runCheckFromConfig validates every source in a litprompt.yaml config without
+// writing output, reusing the build config path's discovery and directory
+// semantics (including the cwd restore). Errors are collected per source and
+// the command exits non-zero if any failed.
+func runCheckFromConfig(opts build.Options) error {
+	_, items, opts, cleanup, err := resolveConfigBuilds(opts)
+	defer cleanup()
+	if err != nil {
+		return err
+	}
+
+	files := make([]string, len(items))
+	for i, r := range items {
+		files[i] = r.Source
+	}
+
+	errCount, warnCount := checkFiles(files, opts)
+	if errCount > 0 {
+		return fmt.Errorf("%d of %d file(s) failed validation", errCount, len(files))
+	}
+	reportCheckOK(len(files), warnCount)
+	return nil
+}
+
+// checkFiles builds each source with opts but discards the output, reporting an
+// ERROR line per failed source and a WARN line per suspected malformed import.
+// It returns the counts of errors and warnings.
+func checkFiles(files []string, opts build.Options) (errCount, warnCount int) {
+	for _, f := range files {
+		slog.Info("checking", "file", f)
+		if _, err := build.Build(f, opts); err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR %s: %s\n", f, err)
+			errCount++
+		} else {
+			slog.Info("ok", "file", f)
+		}
+		warnCount += warnSuspectedImports(f)
+	}
+	return errCount, warnCount
+}
+
+// warnSuspectedImports prints a WARN line for each line in file that looks like
+// a malformed import (import-like syntax with trailing content) and returns the
+// number of warnings emitted. An unreadable file yields no warnings — the build
+// error already covered it.
+func warnSuspectedImports(file string) int {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, s := range parse.FindSuspectedImports(string(data)) {
+		fmt.Fprintf(os.Stderr, "WARN %s:%d: possible malformed import (trailing content): %s\n", file, s.Line+1, strings.TrimSpace(s.Content))
+		n++
+	}
+	return n
+}
+
+// reportCheckOK prints the success summary for a check run to stderr.
+func reportCheckOK(fileCount, warnCount int) {
+	msg := fmt.Sprintf("ok: %d file(s) checked", fileCount)
+	if warnCount > 0 {
+		msg += fmt.Sprintf(", %d warning(s)", warnCount)
+	}
+	fmt.Fprintf(os.Stderr, "%s\n", msg)
 }
 
 func lockCmd() *cobra.Command {
@@ -419,15 +489,22 @@ func normalizeInterlockMode(mode string) (string, error) {
 	}
 }
 
-// runBuildFromConfig runs every build declared in a litprompt.yaml config,
-// continuing on errors and returning a non-nil error if any failed. When
-// configPath is set, that explicit file is used and sources, outputs, and the
-// lockfile resolve relative to its directory; otherwise the config is
-// discovered in the current working directory.
-func runBuildFromConfig(opts build.Options) error {
+// resolveConfigBuilds discovers or loads the litprompt config (honoring the
+// --config flag) and resolves it into concrete build entries, shared by the
+// build and check config paths. When --config names a file outside the cwd it
+// chdirs into that file's directory so sources, outputs, and the lockfile all
+// resolve relative to it — `--config sub/x.yaml` behaves exactly like
+// `cd sub && litprompt …` pointed at that file. The returned cleanup func is
+// always non-nil and restores the original working directory (a no-op when no
+// chdir happened); the caller must defer it unconditionally, including on a
+// returned error, since the chdir may already have happened. The returned opts
+// carry the lockfile path adjusted to the config's directory.
+func resolveConfigBuilds(opts build.Options) (*config.Config, []config.Resolved, build.Options, func(), error) {
+	cleanup := func() {}
+
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+		return nil, nil, opts, cleanup, fmt.Errorf("getting working directory: %w", err)
 	}
 
 	var cfg *config.Config
@@ -436,40 +513,54 @@ func runBuildFromConfig(opts build.Options) error {
 	if configPath != "" {
 		// Resolve the config to an absolute path before any chdir, then run as
 		// if invoked from its directory: sources, outputs, and the lockfile are
-		// all cwd-relative downstream, so `--config sub/x.yaml` behaves exactly
-		// like `cd sub && litprompt build` pointed at that file.
+		// all cwd-relative downstream.
 		abs, aerr := filepath.Abs(configPath)
 		if aerr != nil {
-			return fmt.Errorf("resolving config path: %w", aerr)
+			return nil, nil, opts, cleanup, fmt.Errorf("resolving config path: %w", aerr)
 		}
 		cfg, err = config.LoadFile(abs)
 		if err != nil {
 			// Report the path the user typed, not the resolved absolute path.
-			return fmt.Errorf("loading config %s: %w", configPath, err)
+			return nil, nil, opts, cleanup, fmt.Errorf("loading config %s: %w", configPath, err)
 		}
 		// chdir into the config's directory so downstream cwd-relative resolution
 		// matches it. `cwd` is left untouched as the original directory, so the
-		// deferred restore returns the process to where it started; `baseDir`
-		// (not cwd) drives source/output/lockfile resolution below.
+		// cleanup func returns the process to where it started; `baseDir` (not
+		// cwd) drives source/output/lockfile resolution below.
 		if dir := filepath.Dir(abs); dir != cwd {
 			if cerr := os.Chdir(dir); cerr != nil {
-				return fmt.Errorf("entering config directory %s: %w", dir, cerr)
+				return nil, nil, opts, cleanup, fmt.Errorf("entering config directory %s: %w", dir, cerr)
 			}
-			defer func() { _ = os.Chdir(cwd) }()
+			cleanup = func() { _ = os.Chdir(cwd) }
 			baseDir = dir
 		}
 		opts.LockfilePath = filepath.Join(baseDir, "litprompt.lock")
 	} else {
 		cfg, err = config.Load(cwd)
 		if err != nil {
-			return err
+			return nil, nil, opts, cleanup, err
 		}
 		if cfg == nil {
-			return fmt.Errorf("no source given and no litprompt.yaml in %s", cwd)
+			return nil, nil, opts, cleanup, fmt.Errorf("no source given and no litprompt.yaml in %s", cwd)
 		}
 	}
 
 	items, err := cfg.Resolve(baseDir)
+	if err != nil {
+		return nil, nil, opts, cleanup, err
+	}
+
+	return cfg, items, opts, cleanup, nil
+}
+
+// runBuildFromConfig runs every build declared in a litprompt.yaml config,
+// continuing on errors and returning a non-nil error if any failed. When
+// configPath is set, that explicit file is used and sources, outputs, and the
+// lockfile resolve relative to its directory; otherwise the config is
+// discovered in the current working directory.
+func runBuildFromConfig(opts build.Options) error {
+	cfg, items, opts, cleanup, err := resolveConfigBuilds(opts)
+	defer cleanup()
 	if err != nil {
 		return err
 	}

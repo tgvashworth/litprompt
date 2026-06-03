@@ -19,8 +19,9 @@ mise run lint                         # go vet
 ```
 main.go                       CLI entrypoint (cobra). Defines build, check, and lock commands.
                               Also: insertHeader (--header flag), resolveInputFiles (recursive walk + --match),
-                              runBuildFromConfig (config-driven build path; no-args discovers
-                              litprompt.yaml in cwd, or --config selects a named file).
+                              resolveConfigBuilds (shared config-driven path: no-args discovers
+                              litprompt.yaml in cwd, or --config selects a named file, with cwd-restore),
+                              consumed by runBuildFromConfig (build) and runCheckFromConfig (validate-only).
 internal/build/build.go       Core build orchestrator. Reads a file, strips comments,
                               resolves imports recursively, detects circular imports.
                               Remote imports read from cache by content hash. After

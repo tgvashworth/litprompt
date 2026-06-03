@@ -336,6 +336,154 @@ func TestRunBuild_configFlagWithSourceArg_errors(t *testing.T) {
 	}
 }
 
+// --- config-driven check (runCheckFromConfig) ---
+
+func TestRunCheckFromConfig_allValid(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeTestFile(t, "src/a.md", "# a\n")
+	writeTestFile(t, "src/sub/b.md", "# b\n")
+	writeTestFile(t, "litprompt.yaml", `builds:
+  - source: src/
+    output: out/
+`)
+
+	if err := runCheckFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check must not write any output — only validate.
+	if _, err := os.Stat("out"); err == nil {
+		t.Error("check should not have written output directory")
+	}
+}
+
+func TestRunCheckFromConfig_reportsFailures(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	writeTestFile(t, "src/good.md", "# good\n")
+	writeTestFile(t, "src/bad.md", "@[missing](./does-not-exist.md)\n")
+	writeTestFile(t, "litprompt.yaml", `builds:
+  - source: src/
+    output: out/
+`)
+
+	err := runCheckFromConfig(build.Options{})
+	if err == nil {
+		t.Fatal("expected error from failing entry, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed validation") {
+		t.Errorf("error should mention failed validation: %v", err)
+	}
+	if _, statErr := os.Stat("out"); statErr == nil {
+		t.Error("check should not have written output despite reporting per-entry")
+	}
+}
+
+func TestRunCheckFromConfig_noConfig_errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	err := runCheckFromConfig(build.Options{})
+	if err == nil {
+		t.Fatal("expected error when no litprompt.yaml exists, got nil")
+	}
+	if !strings.Contains(err.Error(), "litprompt.yaml") {
+		t.Errorf("error should mention litprompt.yaml: %v", err)
+	}
+}
+
+func TestRunCheckFromConfig_explicitConfigInOtherDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	// Config and source live in envs/, not the cwd. Sources resolve relative to
+	// the config's directory, so a source named relative to it must be found.
+	writeTestFile(t, "envs/agent.md", "# agent\n")
+	writeTestFile(t, "envs/litprompt.prod.yaml", `builds:
+  - source: agent.md
+    output: dist/agent.md
+`)
+
+	configPath = "envs/litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	if err := runCheckFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check writes nothing, in either directory.
+	if _, err := os.Stat(filepath.Join(dir, "envs/dist")); err == nil {
+		t.Error("check should not have written output relative to config dir")
+	}
+}
+
+func TestRunCheckFromConfig_explicitConfigMissing_errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	configPath = "litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	err := runCheckFromConfig(build.Options{})
+	if err == nil {
+		t.Fatal("expected error for missing named config, got nil")
+	}
+	if !strings.Contains(err.Error(), "litprompt.prod.yaml") {
+		t.Errorf("error should name the missing config: %v", err)
+	}
+}
+
+func TestRunCheckFromConfig_restoresCwd(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	// A config in a subdirectory triggers an internal chdir; the process cwd
+	// must be back where it started once the check returns.
+	writeTestFile(t, "envs/agent.md", "# agent\n")
+	writeTestFile(t, "envs/litprompt.prod.yaml", `builds:
+  - source: agent.md
+    output: dist/agent.md
+`)
+
+	configPath = "envs/litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	before, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := runCheckFromConfig(build.Options{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	after, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if before != after {
+		t.Errorf("working directory not restored: before %q, after %q", before, after)
+	}
+}
+
+func TestRunCheck_configFlagWithSourceArg_errors(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeTestFile(t, "prompt.md", "# hi\n")
+
+	configPath = "litprompt.prod.yaml"
+	defer func() { configPath = "" }()
+
+	err := runCheck(nil, []string{"prompt.md"})
+	if err == nil {
+		t.Fatal("expected error combining --config with a source argument, got nil")
+	}
+	if !strings.Contains(err.Error(), "--config") {
+		t.Errorf("error should mention --config: %v", err)
+	}
+}
+
 func TestRunBuildFromConfig_restoresCwd(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
